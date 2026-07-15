@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String   @unique
+  passwordHash  String
+  nickname      String
+  avatarUrl     String?
+  bio           String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  personalityProfile PersonalityProfile?
+  onboardingAnswers   OnboardingAnswer[]
+  preferences         Preference[]
+  memories            Memory[]
+  posts               Post[]
+  postLikes           PostLike[]
+  comments            Comment[]
+  commentLikes        CommentLike[]
+  reposts             Repost[]
+  following           Follow[] @relation("Following")
+  followers           Follow[] @relation("Followers")
+  conversationMembers ConversationMember[]
+  messages            Message[]
+  avatarChatSessions  AvatarChatSession[]
+  aiGenerationLogs    AIGenerationLog[]
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+model PersonalityProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  summary               String
+  traitsJson            String
+  communicationStyle    String
+  socialStyle           String
+  emotionalStyle        String
+  replyLength           String
+  emojiPreference       String
+  aiAutonomyLevel       String
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OnboardingAnswer {
+  id          String @id @default(cuid())
+  userId      String
+  questionKey String
+  answerJson  String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionKey])
+}
+
+model Preference {
+  id       String  @id @default(cuid())
+  userId   String
+  category String
+  value    String
+  enabled  Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+}
+
+model Memory {
+  id          String    @id @default(cuid())
+  userId      String
+  type        String
+  content     String
+  sourceType  String
+  sourceId    String?
+  confidence  Float     @default(0.8)
+  status      String    @default("CONFIRMED")
+  enabled     Boolean   @default(true)
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, status])
+}
+
+model Post {
+  id             String   @id @default(cuid())
+  authorId       String
+  content        String
+  imageUrlsJson  String   @default("[]")
+  topicsJson     String   @default("[]")
+  location       String?
+  locationLat    Float?
+  locationLng    Float?
+  visibility     String   @default("PUBLIC")
+  allowComments  Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  author   User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes    PostLike[]
+  comments Comment[]
+  reposts  Repost[]
+
+  @@index([createdAt])
+}
+
+model PostLike {
+  id     String @id @default(cuid())
+  postId String
+  userId String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model Comment {
+  id                String   @id @default(cuid())
+  postId            String
+  authorId          String
+  parentId          String?
+  content           String
+  generatedByAvatar Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  post    Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author  User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent  Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies Comment[]     @relation("CommentReplies")
+  likes   CommentLike[]
+
+  @@index([postId, createdAt])
+}
+
+model CommentLike {
+  id        String @id @default(cuid())
+  commentId String
+  userId    String
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+}
+
+model Repost {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  aiMode    String   @default("MANUAL")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  ConversationMember[]
+  messages Message[]
+}
+
+model ConversationMember {
+  id             String @id @default(cuid())
+  conversationId String
+  userId         String
+  role           String @default("MEMBER")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String?
+  content        String
+  senderMode     String   @default("HUMAN")
+  createdAt      DateTime @default(now())
+  status         String   @default("SENT")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+}
+
+model AvatarChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AvatarChatMessage[]
+}
+
+model AvatarChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  session AvatarChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AIGenerationLog {
+  id                 String   @id @default(cuid())
+  userId             String
+  taskType           String
+  sourceId           String?
+  inputSummary       String
+  output             String
+  accepted           Boolean  @default(false)
+  finalEditedContent String?
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
