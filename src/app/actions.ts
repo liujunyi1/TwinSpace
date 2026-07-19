@@ -10,6 +10,9 @@ import {
   verifyPassword
 } from "@/lib/auth";
 import {
+  avatarKnowledgeUpdateSchema,
+  calibrationApprovalSchema,
+  calibrationKindSchema,
   commentSchema,
   loginSchema,
   messageSchema,
@@ -18,9 +21,23 @@ import {
   registerSchema
 } from "@/lib/schemas";
 import { prisma } from "@/lib/prisma";
-import { extractPersonalityProfile, generateAvatarReply, generateFriendReplyDraft } from "@/lib/ai";
+import {
+  compileAvatarKnowledge,
+  extractPersonalityProfile,
+  generateAvatarReply,
+  generateCalibrationReply,
+  generateFriendReplyDraft
+} from "@/lib/ai";
 import { normalizeAnswers } from "@/lib/onboarding";
 import { saveAvatarFile, savePostImageFiles } from "@/lib/upload";
+import {
+  CALIBRATION_SCENARIOS,
+  isCalibrationComplete,
+  type AvatarSourceForCompilation,
+  type CalibrationKind
+} from "@/lib/agent/knowledge";
+import { findVisiblePost } from "@/lib/post-visibility";
+import type { Prisma } from "@prisma/client";
 
 function fail(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
@@ -41,6 +58,72 @@ async function avatarFromForm(formData: FormData, fallback?: string | null) {
     throw new Error("头像链接必须是 http(s) 地址或本地上传图片");
   }
   return url || fallback || null;
+}
+
+const AVATAR_PATHS = ["/avatar", "/avatar/build", "/avatar/knowledge", "/avatar/calibration"];
+
+function revalidateAvatarPaths() {
+  for (const path of AVATAR_PATHS) revalidatePath(path);
+}
+
+async function invalidateAvatarCalibration(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  status?: "DRAFT" | "CALIBRATING"
+) {
+  const avatar = await tx.avatarProfile.findUnique({ where: { userId }, select: { id: true } });
+  if (!avatar) return;
+
+  await tx.avatarCalibrationCase.deleteMany({ where: { userId } });
+  const knowledgeCount = await tx.avatarKnowledgePage.count({ where: { userId } });
+  await tx.avatarProfile.update({
+    where: { userId },
+    data: {
+      status: status || (knowledgeCount > 0 ? "CALIBRATING" : "DRAFT"),
+      knowledgeRevision: { increment: 1 },
+      calibratedAt: null
+    }
+  });
+}
+
+async function removeAvatarSourcesByReference(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  kind: string,
+  sourceKeys: string[]
+) {
+  if (sourceKeys.length === 0) return;
+  const sources = await tx.avatarKnowledgeSource.findMany({
+    where: { userId, kind, sourceKey: { in: sourceKeys } },
+    select: { id: true, citations: { select: { knowledgeId: true } } }
+  });
+  if (sources.length === 0) return;
+
+  const knowledgeIds = [
+    ...new Set(sources.flatMap((source) => source.citations.map((citation) => citation.knowledgeId)))
+  ];
+  await tx.avatarKnowledgeSource.deleteMany({
+    where: { id: { in: sources.map((source) => source.id) }, userId }
+  });
+  if (knowledgeIds.length > 0) {
+    await tx.avatarKnowledgePage.updateMany({
+      where: { id: { in: knowledgeIds }, userId },
+      data: {
+        confirmationStatus: "PENDING",
+        revision: { increment: 1 }
+      }
+    });
+    const orphaned = await tx.avatarKnowledgePage.findMany({
+      where: { id: { in: knowledgeIds }, userId, citations: { none: {} } },
+      select: { id: true }
+    });
+    if (orphaned.length > 0) {
+      await tx.avatarKnowledgePage.deleteMany({
+        where: { id: { in: orphaned.map((page) => page.id) }, userId }
+      });
+    }
+  }
+  await invalidateAvatarCalibration(tx, userId);
 }
 
 export async function registerAction(formData: FormData) {
@@ -101,6 +184,13 @@ export async function saveOnboardingAction(formData: FormData) {
   const user = await requireUser();
   const answers = normalizeAnswers(formData);
   const profile = await extractPersonalityProfile(answers);
+  const tone = Array.isArray(profile.tone) ? profile.tone.join("、") : profile.tone;
+  const expressionRules = Array.isArray(profile.expressionRules)
+    ? profile.expressionRules.join("、")
+    : profile.expressionRules;
+  const friendAiLevel = Array.isArray(profile.friendAiLevel)
+    ? profile.friendAiLevel.join("、")
+    : profile.friendAiLevel;
 
   await prisma.$transaction(async (tx) => {
     await tx.onboardingAnswer.deleteMany({ where: { userId: user.id } });
@@ -125,7 +215,10 @@ export async function saveOnboardingAction(formData: FormData) {
           socialInitiative: profile.socialInitiative,
           interestTopics: profile.interestTopics,
           comfortPreference: profile.comfortPreference,
-          boundaries: profile.boundaries
+          boundaries: profile.boundaries,
+          tone,
+          expressionRules,
+          friendAiLevel
         }),
         communicationStyle: profile.communicationStyle,
         socialStyle: profile.socialStyle,
@@ -144,7 +237,10 @@ export async function saveOnboardingAction(formData: FormData) {
           socialInitiative: profile.socialInitiative,
           interestTopics: profile.interestTopics,
           comfortPreference: profile.comfortPreference,
-          boundaries: profile.boundaries
+          boundaries: profile.boundaries,
+          tone,
+          expressionRules,
+          friendAiLevel
         }),
         communicationStyle: profile.communicationStyle,
         socialStyle: profile.socialStyle,
@@ -177,21 +273,54 @@ export async function saveOnboardingAction(formData: FormData) {
           userId: user.id,
           category: "表情偏好",
           value: profile.emojiPreference
+        },
+        {
+          userId: user.id,
+          category: "常用语气",
+          value: tone
+        },
+        {
+          userId: user.id,
+          category: "表达规则",
+          value: expressionRules
+        },
+        {
+          userId: user.id,
+          category: "好友聊天 AI",
+          value: friendAiLevel
         }
       ]
     });
 
+    await tx.memory.deleteMany({
+      where: { userId: user.id, type: "表达习惯", sourceType: "注册问答" }
+    });
     await tx.memory.create({
       data: {
         userId: user.id,
         type: "表达习惯",
-        content: profile.communicationStyle,
+        content: `${profile.communicationStyle}；${expressionRules}`,
         sourceType: "注册问答",
         confidence: 0.88,
         status: "CONFIRMED",
         confirmedAt: new Date()
       }
     });
+
+    const avatar = await tx.avatarProfile.findUnique({ where: { userId: user.id } });
+    if (avatar) {
+      await tx.avatarCalibrationCase.deleteMany({ where: { userId: user.id } });
+      await tx.avatarKnowledgePage.deleteMany({ where: { userId: user.id } });
+      await tx.avatarKnowledgeSource.deleteMany({ where: { userId: user.id } });
+      await tx.avatarProfile.update({
+        where: { userId: user.id },
+        data: {
+          status: "DRAFT",
+          knowledgeRevision: { increment: 1 },
+          calibratedAt: null
+        }
+      });
+    }
   });
 
   redirect("/feed");
@@ -234,6 +363,8 @@ export async function togglePostLikeAction(formData: FormData) {
   const user = await requireUser();
   const postId = String(formData.get("postId") || "");
   if (!postId) return;
+  const post = await findVisiblePost(user.id, postId);
+  if (!post) return;
   const existing = await prisma.postLike.findUnique({
     where: { postId_userId: { postId, userId: user.id } }
   });
@@ -249,8 +380,15 @@ export async function createCommentAction(formData: FormData) {
   const user = await requireUser();
   const parsed = commentSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-  const post = await prisma.post.findUnique({ where: { id: parsed.data.postId } });
+  const post = await findVisiblePost(user.id, parsed.data.postId);
   if (!post?.allowComments) return;
+  if (parsed.data.parentId) {
+    const parent = await prisma.comment.findFirst({
+      where: { id: parsed.data.parentId, postId: parsed.data.postId },
+      select: { id: true }
+    });
+    if (!parent) return;
+  }
   await prisma.comment.create({
     data: {
       postId: parsed.data.postId,
@@ -290,7 +428,10 @@ export async function deletePostAction(formData: FormData) {
   });
   if (!post || post.authorId !== user.id) return;
 
-  await prisma.post.delete({ where: { id: postId } });
+  await prisma.$transaction(async (tx) => {
+    await removeAvatarSourcesByReference(tx, user.id, "POST", [postId]);
+    await tx.post.delete({ where: { id: postId } });
+  });
   revalidatePath("/feed");
   revalidatePath("/profile");
   revalidatePath("/profile/comments");
@@ -301,6 +442,8 @@ export async function repostAction(formData: FormData) {
   const postId = String(formData.get("postId") || "");
   const content = String(formData.get("content") || "");
   if (!postId) return;
+  const post = await findVisiblePost(user.id, postId);
+  if (!post) return;
   await prisma.repost.create({ data: { postId, userId: user.id, content } });
   revalidatePath("/feed");
 }
@@ -346,6 +489,8 @@ export async function toggleFollowAction(formData: FormData) {
   revalidatePath("/profile");
   revalidatePath(`/users/${followingId}`);
   revalidatePath("/search");
+  revalidatePath("/feed");
+  revalidatePath("/profile/comments");
 }
 
 export async function startConversationAction(formData: FormData) {
@@ -437,6 +582,8 @@ export async function sendAvatarMessageAction(formData: FormData) {
   const user = await requireUser();
   const content = String(formData.get("content") || "").trim();
   if (!content) return;
+  const avatarProfile = await prisma.avatarProfile.findUnique({ where: { userId: user.id } });
+  if (!avatarProfile || !["ACTIVE", "PAUSED"].includes(avatarProfile.status)) redirect("/avatar");
 
   let session = await prisma.avatarChatSession.findFirst({
     where: { userId: user.id },
@@ -460,10 +607,22 @@ export async function sendAvatarMessageAction(formData: FormData) {
     orderBy: { updatedAt: "desc" },
     take: 6
   });
+  const knowledge = await prisma.avatarKnowledgePage.findMany({
+    where: {
+      userId: user.id,
+      enabled: true,
+      confirmationStatus: { in: ["AUTO", "CONFIRMED"] }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 8
+  });
   const reply = await generateAvatarReply({
     nickname: user.nickname,
     profileSummary: profile?.summary || "暂无画像",
-    memories: memories.map((memory) => memory.content),
+    memories: [
+      ...knowledge.map((page) => `${page.title}：${page.content}`),
+      ...memories.map((memory) => memory.content)
+    ].slice(0, 10),
     messages: [
       ...session.messages.map((message) => ({
         role: message.role === "assistant" ? ("assistant" as const) : ("user" as const),
@@ -477,7 +636,7 @@ export async function sendAvatarMessageAction(formData: FormData) {
     data: { sessionId: session.id, role: "assistant", content: reply }
   });
   await prisma.avatarChatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
-  revalidatePath("/avatar");
+  revalidatePath("/avatar/chat");
 }
 
 export async function clearAvatarSessionAction() {
@@ -489,7 +648,7 @@ export async function clearAvatarSessionAction() {
   if (session) {
     await prisma.avatarChatMessage.deleteMany({ where: { sessionId: session.id } });
   }
-  revalidatePath("/avatar");
+  revalidatePath("/avatar/chat");
 }
 
 export async function addMemoryAction(formData: FormData) {
@@ -533,6 +692,362 @@ export async function confirmMemoryAction(formData: FormData) {
 export async function deleteMemoryAction(formData: FormData) {
   const user = await requireUser();
   const id = String(formData.get("id") || "");
-  await prisma.memory.deleteMany({ where: { id, userId: user.id } });
+  await prisma.$transaction(async (tx) => {
+    await removeAvatarSourcesByReference(tx, user.id, "MEMORY", [id]);
+    await tx.memory.deleteMany({ where: { id, userId: user.id } });
+  });
   revalidatePath("/profile/memories");
+  revalidateAvatarPaths();
+}
+
+export async function buildAvatarKnowledgeAction(formData: FormData) {
+  const user = await requireUser();
+  const profile = await prisma.personalityProfile.findUnique({ where: { userId: user.id } });
+  if (!profile) fail("/avatar/build", "请先完成人格问卷");
+
+  const selections = [
+    ...new Set(
+      formData
+        .getAll("source")
+        .map((value) => String(value))
+        .filter((value) => /^(POST|MESSAGE|MEMORY):[^:]+$/.test(value))
+    )
+  ];
+  const idsByKind = {
+    POST: selections.filter((item) => item.startsWith("POST:")).map((item) => item.slice(5)),
+    MESSAGE: selections.filter((item) => item.startsWith("MESSAGE:")).map((item) => item.slice(8)),
+    MEMORY: selections.filter((item) => item.startsWith("MEMORY:")).map((item) => item.slice(7))
+  };
+
+  const [answers, posts, messages, memories] = await Promise.all([
+    prisma.onboardingAnswer.findMany({
+      where: { userId: user.id },
+      orderBy: { questionKey: "asc" }
+    }),
+    prisma.post.findMany({
+      where: { id: { in: idsByKind.POST }, authorId: user.id },
+      select: { id: true, content: true, createdAt: true }
+    }),
+    prisma.message.findMany({
+      where: {
+        id: { in: idsByKind.MESSAGE },
+        senderId: user.id,
+        senderMode: "HUMAN"
+      },
+      select: { id: true, content: true, createdAt: true, conversation: { select: { title: true } } }
+    }),
+    prisma.memory.findMany({
+      where: {
+        id: { in: idsByKind.MEMORY },
+        userId: user.id,
+        enabled: true,
+        status: "CONFIRMED"
+      },
+      select: { id: true, content: true, type: true, createdAt: true }
+    })
+  ]);
+
+  const sourceRows: Array<{
+    kind: string;
+    sourceKey: string;
+    label: string;
+    content: string;
+  }> = [
+    {
+      kind: "QUESTIONNAIRE",
+      sourceKey: "current-profile",
+      label: "问卷画像",
+      content: [
+        profile.summary,
+        `沟通风格：${profile.communicationStyle}`,
+        `社交风格：${profile.socialStyle}`,
+        `情绪表达：${profile.emotionalStyle}`,
+        `回复长度：${profile.replyLength}`,
+        `表情偏好：${profile.emojiPreference}`,
+        ...answers.map((answer) => `${answer.questionKey}: ${answer.answerJson}`)
+      ].join("\n")
+    },
+    ...posts.map((post) => ({
+      kind: "POST",
+      sourceKey: post.id,
+      label: `动态 · ${post.createdAt.toLocaleDateString("zh-CN")}`,
+      content: post.content
+    })),
+    ...messages.map((message) => ({
+      kind: "MESSAGE",
+      sourceKey: message.id,
+      label: `本人消息 · ${message.conversation.title}`,
+      content: message.content
+    })),
+    ...memories.map((memory) => ({
+      kind: "MEMORY",
+      sourceKey: memory.id,
+      label: `确认记忆 · ${memory.type}`,
+      content: memory.content
+    }))
+  ];
+
+  const manualSample = String(formData.get("manualSample") || "").trim().slice(0, 5000);
+  if (manualSample) {
+    sourceRows.push({
+      kind: "MANUAL",
+      sourceKey: `manual-${Date.now()}`,
+      label: "手动表达样本",
+      content: manualSample
+    });
+  }
+
+  const compilationSources: AvatarSourceForCompilation[] = sourceRows.map((source) => ({
+    id: `${source.kind}:${source.sourceKey}`,
+    kind: source.kind,
+    content: source.content
+  }));
+  const proposals = await compileAvatarKnowledge({
+    profileSummary: profile.summary,
+    communicationStyle: profile.communicationStyle,
+    socialStyle: profile.socialStyle,
+    emotionalStyle: profile.emotionalStyle,
+    replyLength: profile.replyLength,
+    emojiPreference: profile.emojiPreference,
+    sources: compilationSources
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.avatarCalibrationCase.deleteMany({ where: { userId: user.id } });
+    await tx.avatarKnowledgePage.deleteMany({ where: { userId: user.id } });
+    await tx.avatarKnowledgeSource.deleteMany({ where: { userId: user.id } });
+
+    const sourceIds = new Map<string, string>();
+    for (const source of sourceRows) {
+      const created = await tx.avatarKnowledgeSource.create({
+        data: { userId: user.id, ...source }
+      });
+      sourceIds.set(`${source.kind}:${source.sourceKey}`, created.id);
+    }
+
+    for (const proposal of proposals) {
+      const citedSourceIds = proposal.sourceIds
+        .map((sourceId) => sourceIds.get(sourceId))
+        .filter((sourceId): sourceId is string => Boolean(sourceId));
+      if (citedSourceIds.length === 0) continue;
+      await tx.avatarKnowledgePage.create({
+        data: {
+          userId: user.id,
+          category: proposal.category,
+          title: proposal.title,
+          content: proposal.content,
+          confidence: proposal.confidence,
+          confirmationStatus: proposal.requiresConfirmation ? "PENDING" : "AUTO",
+          citations: {
+            create: citedSourceIds.map((sourceId) => ({ sourceId }))
+          }
+        }
+      });
+    }
+
+    await tx.avatarProfile.upsert({
+      where: { userId: user.id },
+      create: {
+        userId: user.id,
+        privateName: `${user.nickname}的分身`,
+        status: "CALIBRATING",
+        knowledgeRevision: 1
+      },
+      update: {
+        status: "CALIBRATING",
+        knowledgeRevision: { increment: 1 },
+        calibratedAt: null
+      }
+    });
+  });
+
+  revalidateAvatarPaths();
+  redirect("/avatar/calibration");
+}
+
+export async function updateAvatarKnowledgeAction(formData: FormData) {
+  const user = await requireUser();
+  const parsed = avatarKnowledgeUpdateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail("/avatar/knowledge", parsed.error.issues[0]?.message || "知识格式不正确");
+  const existing = await prisma.avatarKnowledgePage.findFirst({
+    where: { id: parsed.data.id, userId: user.id },
+    select: { id: true, revision: true }
+  });
+  if (!existing) return;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.avatarKnowledgePage.update({
+      where: { id: existing.id },
+      data: {
+        title: parsed.data.title,
+        content: parsed.data.content,
+        confirmationStatus: "CONFIRMED",
+        revision: { increment: 1 }
+      }
+    });
+    await invalidateAvatarCalibration(tx, user.id);
+  });
+  revalidateAvatarPaths();
+}
+
+export async function confirmAvatarKnowledgeAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("id") || "");
+  const existing = await prisma.avatarKnowledgePage.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true }
+  });
+  if (!existing) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.avatarKnowledgePage.update({
+      where: { id: existing.id },
+      data: { confirmationStatus: "CONFIRMED" }
+    });
+    await invalidateAvatarCalibration(tx, user.id);
+  });
+  revalidateAvatarPaths();
+}
+
+export async function toggleAvatarKnowledgeAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("id") || "");
+  const existing = await prisma.avatarKnowledgePage.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true, enabled: true }
+  });
+  if (!existing) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.avatarKnowledgePage.update({
+      where: { id: existing.id },
+      data: { enabled: !existing.enabled }
+    });
+    await invalidateAvatarCalibration(tx, user.id);
+  });
+  revalidateAvatarPaths();
+}
+
+export async function deleteAvatarKnowledgeAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("id") || "");
+  const existing = await prisma.avatarKnowledgePage.findFirst({
+    where: { id, userId: user.id },
+    select: { id: true }
+  });
+  if (!existing) return;
+  await prisma.$transaction(async (tx) => {
+    await tx.avatarKnowledgePage.delete({ where: { id: existing.id } });
+    await invalidateAvatarCalibration(tx, user.id);
+  });
+  revalidateAvatarPaths();
+}
+
+export async function deleteAvatarSourceAction(formData: FormData) {
+  const user = await requireUser();
+  const id = String(formData.get("id") || "");
+  const source = await prisma.avatarKnowledgeSource.findFirst({
+    where: { id, userId: user.id },
+    select: { kind: true, sourceKey: true }
+  });
+  if (!source) return;
+  await prisma.$transaction((tx) =>
+    removeAvatarSourcesByReference(tx, user.id, source.kind, [source.sourceKey])
+  );
+  revalidateAvatarPaths();
+}
+
+export async function generateCalibrationAction(formData: FormData) {
+  const user = await requireUser();
+  const parsedKind = calibrationKindSchema.safeParse(String(formData.get("kind") || ""));
+  if (!parsedKind.success) return;
+  const avatar = await prisma.avatarProfile.findUnique({ where: { userId: user.id } });
+  if (!avatar) redirect("/avatar/build");
+
+  const knowledge = await prisma.avatarKnowledgePage.findMany({
+    where: {
+      userId: user.id,
+      enabled: true,
+      confirmationStatus: { in: ["AUTO", "CONFIRMED"] }
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 20
+  });
+  const personality = await prisma.personalityProfile.findUnique({ where: { userId: user.id } });
+  const scenario = CALIBRATION_SCENARIOS[parsedKind.data].scenario;
+  const generatedResponse = await generateCalibrationReply({
+    kind: parsedKind.data,
+    scenario,
+    profileSummary: personality?.summary || "暂无画像",
+    knowledge: knowledge.map((page) => ({
+      id: page.id,
+      category: page.category,
+      title: page.title,
+      content: page.content
+    }))
+  });
+
+  await prisma.avatarCalibrationCase.upsert({
+    where: { userId_kind: { userId: user.id, kind: parsedKind.data } },
+    create: {
+      userId: user.id,
+      kind: parsedKind.data,
+      scenario,
+      generatedResponse,
+      status: "GENERATED",
+      knowledgeRevision: avatar.knowledgeRevision
+    },
+    update: {
+      scenario,
+      generatedResponse,
+      editedResponse: null,
+      status: "GENERATED",
+      knowledgeRevision: avatar.knowledgeRevision
+    }
+  });
+  await prisma.avatarProfile.update({
+    where: { userId: user.id },
+    data: { status: "CALIBRATING", calibratedAt: null }
+  });
+  revalidateAvatarPaths();
+  redirect("/avatar/calibration");
+}
+
+export async function approveCalibrationAction(formData: FormData) {
+  const user = await requireUser();
+  const parsed = calibrationApprovalSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail("/avatar/calibration", parsed.error.issues[0]?.message || "校准内容无效");
+  const avatar = await prisma.avatarProfile.findUnique({ where: { userId: user.id } });
+  if (!avatar) redirect("/avatar/build");
+
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.avatarCalibrationCase.updateMany({
+      where: {
+        userId: user.id,
+        kind: parsed.data.kind,
+        knowledgeRevision: avatar.knowledgeRevision
+      },
+      data: {
+        editedResponse: parsed.data.content,
+        status: "APPROVED"
+      }
+    });
+    if (updated.count === 0) return;
+    const cases = await tx.avatarCalibrationCase.findMany({ where: { userId: user.id } });
+    if (
+      isCalibrationComplete(
+        cases.map((item) => ({
+          kind: item.kind as CalibrationKind,
+          status: item.status,
+          revision: item.knowledgeRevision
+        })),
+        avatar.knowledgeRevision
+      )
+    ) {
+      await tx.avatarProfile.update({
+        where: { userId: user.id },
+        data: { status: "ACTIVE", calibratedAt: new Date() }
+      });
+    }
+  });
+  revalidateAvatarPaths();
+  redirect("/avatar/calibration");
 }

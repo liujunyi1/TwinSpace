@@ -45,3 +45,21 @@ export const profileSchema = z.object({
   bio: z.string().trim().max(180),
   avatarUrl: z.string().max(500).optional().or(z.literal(""))
 });
+
+export const avatarKnowledgeUpdateSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1, "标题不能为空").max(80),
+  content: z.string().trim().min(1, "知识内容不能为空").max(2000)
+});
+
+export const calibrationKindSchema = z.enum([
+  "DAILY_CHAT",
+  "COMFORT",
+  "REFUSAL",
+  "FEED_COMMENT"
+]);
+
+export const calibrationApprovalSchema = z.object({
+  kind: calibrationKindSchema,
+  content: z.string().trim().min(1, "校准回复不能为空").max(1200)
+});

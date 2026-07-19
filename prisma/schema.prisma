@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -33,6 +34,10 @@ model User {
   messages            Message[]
   avatarChatSessions  AvatarChatSession[]
   aiGenerationLogs    AIGenerationLog[]
+  avatarProfile       AvatarProfile?
+  avatarSources       AvatarKnowledgeSource[]
+  avatarKnowledge     AvatarKnowledgePage[]
+  avatarCalibrations  AvatarCalibrationCase[]
 }
 
 model Follow {
@@ -62,6 +67,88 @@ model PersonalityProfile {
   updatedAt             DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AvatarProfile {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  privateName       String    @default("")
+  privateAvatarUrl  String?
+  status            String    @default("UNBUILT")
+  knowledgeRevision Int       @default(0)
+  policyRevision    Int       @default(1)
+  calibratedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AvatarKnowledgeSource {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  sourceKey String
+  label     String
+  content   String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  citations AvatarKnowledgeCitation[]
+
+  @@unique([userId, kind, sourceKey])
+  @@index([userId, kind, enabled])
+}
+
+model AvatarKnowledgePage {
+  id                 String   @id @default(cuid())
+  userId             String
+  category           String
+  title              String
+  content            String
+  confidence         Float    @default(0.8)
+  confirmationStatus String   @default("AUTO")
+  enabled            Boolean  @default(true)
+  revision           Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  citations AvatarKnowledgeCitation[]
+
+  @@index([userId, category, confirmationStatus])
+}
+
+model AvatarKnowledgeCitation {
+  id          String @id @default(cuid())
+  knowledgeId String
+  sourceId    String
+
+  knowledge AvatarKnowledgePage  @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+  source    AvatarKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeId, sourceId])
+  @@index([sourceId])
+}
+
+model AvatarCalibrationCase {
+  id                String   @id @default(cuid())
+  userId            String
+  kind              String
+  scenario          String
+  generatedResponse String
+  editedResponse    String?
+  status            String   @default("GENERATED")
+  knowledgeRevision Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@index([userId, status, knowledgeRevision])
 }
 
 model OnboardingAnswer {

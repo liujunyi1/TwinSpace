@@ -4,13 +4,17 @@ import { Avatar } from "@/components/avatar";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { requireUser } from "@/lib/auth";
+import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime } from "@/lib/utils";
 
 export default async function MyCommentsPage() {
   const user = await requireUser();
   const comments = await prisma.comment.findMany({
-    where: { authorId: user.id },
+    where: {
+      authorId: user.id,
+      post: { is: visiblePostWhere(user.id) }
+    },
     orderBy: { createdAt: "desc" },
     include: { post: { include: { author: true } } }
   });

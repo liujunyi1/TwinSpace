@@ -4,6 +4,7 @@ import { startConversationAction, toggleFollowAction } from "@/app/actions";
 import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { requireUser } from "@/lib/auth";
+import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { parseTraits } from "@/lib/profile";
 import { formatRelativeTime } from "@/lib/utils";
@@ -21,7 +22,11 @@ export default async function UserProfilePage({
     where: { id: params.userId },
     include: {
       personalityProfile: true,
-      posts: { orderBy: { createdAt: "desc" }, take: 10 },
+      posts: {
+        where: visiblePostWhere(currentUser.id),
+        orderBy: { createdAt: "desc" },
+        take: 10
+      },
       followers: true,
       following: true
     }
@@ -68,7 +73,7 @@ export default async function UserProfilePage({
           </div>
           <div>
             <p className="text-2xl font-semibold">{user.posts.length}</p>
-            <p className="text-xs text-muted">帖子</p>
+            <p className="text-xs text-muted">近期帖子</p>
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
@@ -89,7 +94,7 @@ export default async function UserProfilePage({
       </section>
 
       <section className="mt-6">
-        <h2 className="mb-3 text-lg font-semibold">Ta 的帖子</h2>
+        <h2 className="mb-3 text-lg font-semibold">Ta 的近期帖子</h2>
         {user.posts.length ? (
           <div className="space-y-3">
             {user.posts.map((post) => (

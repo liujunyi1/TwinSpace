@@ -11,15 +11,25 @@ import { formatRelativeTime } from "@/lib/utils";
 
 export default async function ProfilePage() {
   const user = await requireUser();
-  const [posts, likes, comments, followingCount, followersCount, myCommentsCount] = await Promise.all([
-    prisma.post.findMany({ where: { authorId: user.id }, orderBy: { createdAt: "desc" }, take: 8 }),
-    prisma.postLike.count({ where: { post: { authorId: user.id } } }),
-    prisma.comment.count({ where: { post: { authorId: user.id } } }),
-    prisma.follow.count({ where: { followerId: user.id } }),
-    prisma.follow.count({ where: { followingId: user.id } }),
-    prisma.comment.count({ where: { authorId: user.id } })
-  ]);
+  const [posts, likes, comments, followingCount, followersCount, myCommentsCount, avatarProfile] =
+    await Promise.all([
+      prisma.post.findMany({ where: { authorId: user.id }, orderBy: { createdAt: "desc" }, take: 8 }),
+      prisma.postLike.count({ where: { post: { authorId: user.id } } }),
+      prisma.comment.count({ where: { post: { authorId: user.id } } }),
+      prisma.follow.count({ where: { followerId: user.id } }),
+      prisma.follow.count({ where: { followingId: user.id } }),
+      prisma.comment.count({ where: { authorId: user.id } }),
+      prisma.avatarProfile.findUnique({ where: { userId: user.id } })
+    ]);
   const traits = parseTraits(user.personalityProfile?.traitsJson);
+  const avatarStatus =
+    avatarProfile?.status === "ACTIVE"
+      ? "已完成校准，可以开始体验"
+      : avatarProfile?.status === "PAUSED"
+        ? "当前已暂停，知识和设置仍会保留"
+        : avatarProfile
+          ? "正在构建，继续完善你的分身"
+          : "从选择代表你的材料开始";
 
   return (
     <main className="page-shell">
@@ -72,7 +82,7 @@ export default async function ProfilePage() {
           </div>
           <div>
             <h2 className="text-lg font-semibold">我的分身</h2>
-            <p className="text-sm text-white/60">理解你，也代表你</p>
+            <p className="text-sm text-white/60">{avatarStatus}</p>
           </div>
         </div>
         <ChevronRight className="h-5 w-5" aria-hidden />
@@ -83,6 +93,7 @@ export default async function ProfilePage() {
           ["人格与偏好", "/profile/personality"],
           ["偏好设置", "/profile/preferences"],
           ["事实记忆", "/profile/memories"],
+          ["分身知识库", "/avatar/knowledge"],
           ["关注与粉丝", "/profile/follows"],
           ["历史评论", "/profile/comments"]
         ].map(([label, href]) => (

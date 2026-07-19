@@ -13,12 +13,14 @@ import { EmptyState } from "@/components/empty-state";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { TopBar } from "@/components/top-bar";
 import { requireUser } from "@/lib/auth";
+import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime, safeJsonParse } from "@/lib/utils";
 
 export default async function FeedPage() {
   const user = await requireUser();
   const posts = await prisma.post.findMany({
+    where: visiblePostWhere(user.id),
     orderBy: { createdAt: "desc" },
     include: {
       author: true,
@@ -49,9 +51,9 @@ export default async function FeedPage() {
       />
 
       <section className="card mb-6 p-5">
-        <p className="text-sm text-muted">过去 2 分钟内，你的空间替你整理了</p>
+        <p className="text-sm text-muted">当前可见动态概览</p>
         <p className="mt-2 text-lg text-muted">
-          浏览 <span className="text-3xl font-semibold text-ink">{posts.length}</span> 条帖子
+          动态 <span className="text-3xl font-semibold text-ink">{posts.length}</span> 条
           <span className="mx-2">|</span>
           点赞 <span className="text-3xl font-semibold text-ink">
             {posts.reduce((sum, post) => sum + post.likes.length, 0)}
