@@ -7,18 +7,21 @@ import {
   repostAction,
   togglePostLikeAction
 } from "@/app/actions";
+import { SocialCommentDeleteButton } from "@/app/(app)/avatar/social/social-comment-delete-button";
 import { Avatar } from "@/components/avatar";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { TopBar } from "@/components/top-bar";
 import { requireUser } from "@/lib/auth";
+import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime, safeJsonParse } from "@/lib/utils";
 
 export default async function FeedPage() {
   const user = await requireUser();
   const posts = await prisma.post.findMany({
+    where: visiblePostWhere(user.id),
     orderBy: { createdAt: "desc" },
     include: {
       author: true,
@@ -49,9 +52,9 @@ export default async function FeedPage() {
       />
 
       <section className="card mb-6 p-5">
-        <p className="text-sm text-muted">过去 2 分钟内，你的空间替你整理了</p>
+        <p className="text-sm text-muted">当前可见动态概览</p>
         <p className="mt-2 text-lg text-muted">
-          浏览 <span className="text-3xl font-semibold text-ink">{posts.length}</span> 条帖子
+          动态 <span className="text-3xl font-semibold text-ink">{posts.length}</span> 条
           <span className="mx-2">|</span>
           点赞 <span className="text-3xl font-semibold text-ink">
             {posts.reduce((sum, post) => sum + post.likes.length, 0)}
@@ -72,7 +75,7 @@ export default async function FeedPage() {
             const images = safeJsonParse<string[]>(post.imageUrlsJson, []);
             const liked = post.likes.some((like) => like.userId === user.id);
             return (
-              <article key={post.id} className="card overflow-hidden p-5">
+              <article id={`post-${post.id}`} key={post.id} className="card scroll-mt-4 overflow-hidden p-5">
                 <div className="flex items-start gap-3">
                   <Link href={post.authorId === user.id ? "/profile" : `/users/${post.authorId}`} aria-label={`查看 ${post.author.nickname} 的主页`}>
                     <Avatar name={post.author.nickname} src={post.author.avatarUrl} />
@@ -143,15 +146,25 @@ export default async function FeedPage() {
                       <Avatar name={comment.author.nickname} src={comment.author.avatarUrl} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p>
-                          <span className="font-semibold">{comment.author.nickname}：</span>
+                          <span className="font-semibold">{comment.author.nickname}</span>
+                          {comment.generatedByAvatar ? (
+                            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                              AI 分身代理
+                            </span>
+                          ) : null}
+                          <span>：</span>
                           {comment.content}
                         </p>
                       </div>
                       {comment.authorId === user.id ? (
-                        <form action={deleteCommentAction} className="shrink-0">
-                          <input type="hidden" name="commentId" value={comment.id} />
-                          <ConfirmSubmitButton message="确定删除这条评论吗？" />
-                        </form>
+                        comment.generatedByAvatar ? (
+                          <SocialCommentDeleteButton commentId={comment.id} />
+                        ) : (
+                          <form action={deleteCommentAction} className="shrink-0">
+                            <input type="hidden" name="commentId" value={comment.id} />
+                            <ConfirmSubmitButton message="确定删除这条评论吗？" />
+                          </form>
+                        )
                       ) : null}
                     </div>
                   ))}

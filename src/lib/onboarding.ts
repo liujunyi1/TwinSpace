@@ -96,23 +96,28 @@ export const onboardingQuestions: OnboardingQuestion[] = [
   }
 ];
 
+const profileListItemSchema = z.string().trim().min(1).max(80);
+
 export const personalityProfileSchema = z.object({
-  summary: z.string(),
-  traits: z.array(z.string()),
+  summary: z.string().trim().min(1).max(600),
+  traits: z.array(profileListItemSchema).min(1).max(8),
   extroversion: z.number().min(1).max(5),
   emotionalExpression: z.number().min(1).max(5),
-  decisionStyle: z.string(),
+  decisionStyle: z.string().trim().min(1).max(120),
   directness: z.number().min(1).max(5),
   socialInitiative: z.number().min(1).max(5),
-  replyLength: z.string(),
-  emojiPreference: z.string(),
-  interestTopics: z.array(z.string()),
-  comfortPreference: z.array(z.string()),
-  boundaries: z.array(z.string()),
-  avatarAutonomyLevel: z.string(),
-  communicationStyle: z.string(),
-  socialStyle: z.string(),
-  emotionalStyle: z.string()
+  replyLength: z.string().trim().min(1).max(80),
+  emojiPreference: z.string().trim().min(1).max(80),
+  interestTopics: z.array(profileListItemSchema).max(20),
+  comfortPreference: z.array(profileListItemSchema).max(20),
+  boundaries: z.array(profileListItemSchema).max(20),
+  avatarAutonomyLevel: z.string().trim().min(1).max(120),
+  communicationStyle: z.string().trim().min(1).max(800),
+  socialStyle: z.string().trim().min(1).max(300),
+  emotionalStyle: z.string().trim().min(1).max(300),
+  tone: z.array(profileListItemSchema).max(8),
+  expressionRules: z.string().trim().min(1).max(500),
+  friendAiLevel: z.string().trim().min(1).max(120)
 });
 
 export type PersonalityProfileResult = z.infer<typeof personalityProfileSchema>;
@@ -129,13 +134,14 @@ export function normalizeAnswers(formData: FormData) {
   return answers;
 }
 
-function asNumber(value: unknown, fallback: number) {
+function asScale(value: unknown, fallback: number) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? Math.min(5, Math.max(1, parsed)) : fallback;
 }
 
 function asArray(value: unknown) {
-  return Array.isArray(value) ? value.map(String).filter(Boolean) : String(value || "").split(/[，,、\n]/).map((item) => item.trim()).filter(Boolean);
+  const values = Array.isArray(value) ? value : String(value || "").split(/[，,、\n]/);
+  return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
 }
 
 export function derivePersonalityProfile(
@@ -147,23 +153,29 @@ export function derivePersonalityProfile(
     : socialEnergy.includes("聊")
       ? 4
       : 2;
-  const directness = asNumber(answers.directness, 3);
-  const logic = asNumber(answers.logic_feeling, 3);
-  const tones = asArray(answers.tone);
-  const interests = asArray(answers.interests);
-  const comfort = asArray(answers.comfort_style);
-  const boundaries = asArray(answers.taboos);
+  const directness = asScale(answers.directness, 3);
+  const logic = asScale(answers.logic_feeling, 3);
+  const tones = asArray(answers.tone).slice(0, 8);
+  const interests = asArray(answers.interests).slice(0, 20);
+  const comfort = asArray(answers.comfort_style).slice(0, 20);
+  const boundaries = asArray(answers.taboos).slice(0, 20);
   const selfTraits = asArray(answers.self_traits).slice(0, 3);
 
-  const communicationStyle =
+  const communicationBase =
     directness >= 4
       ? "表达清楚直接，适合先给结论再补充理由"
       : "表达相对委婉，适合先确认感受再给建议";
+  const expressionRules = String(answers.expression_rules || "").trim().slice(0, 500) || "无额外表达限制";
+  const friendAiLevel = String(answers.friend_ai_level || "").trim().slice(0, 120) || "默认不参与";
+  const toneDescription = tones.length > 0 ? `，整体语气偏${tones.join("、")}` : "";
+  const expressionDescription =
+    expressionRules === "无额外表达限制" ? "" : `，并遵循“${expressionRules}”`;
+  const communicationStyle = `${communicationBase}${toneDescription}${expressionDescription}`;
   const decisionStyle = logic >= 4 ? "逻辑分析型" : logic <= 2 ? "感受优先型" : "逻辑与感受平衡型";
   const emotionalStyle = comfort.includes("先共情") ? "需要先被理解，再进入解决问题" : "更重视有效建议和可执行行动";
-  const replyLength = String(answers.reply_length || "两三句清楚说完");
-  const emojiPreference = String(answers.emoji || "偶尔用");
-  const avatarAutonomyLevel = String(answers.avatar_autonomy || "只在我点按钮时帮忙");
+  const replyLength = String(answers.reply_length || "两三句清楚说完").trim().slice(0, 80);
+  const emojiPreference = String(answers.emoji || "偶尔用").trim().slice(0, 80);
+  const avatarAutonomyLevel = String(answers.avatar_autonomy || "只在我点按钮时帮忙").trim().slice(0, 120);
 
   const traits = [
     ...selfTraits,
@@ -175,7 +187,7 @@ export function derivePersonalityProfile(
     .slice(0, 6);
 
   return personalityProfileSchema.parse({
-    summary: `你更像一个${decisionStyle}的人，${communicationStyle}。在社交上偏${extroversion >= 4 ? "主动连接" : "保留边界"}，压力下通常会${answers.stress_response || "先稳定自己"}。`,
+    summary: `你更像一个${decisionStyle}的人，${communicationBase}。在社交上偏${extroversion >= 4 ? "主动连接" : "保留边界"}，压力下通常会${String(answers.stress_response || "先稳定自己").slice(0, 80)}。`,
     traits,
     extroversion,
     emotionalExpression: comfort.includes("陪我吐槽") ? 4 : 3,
@@ -190,6 +202,9 @@ export function derivePersonalityProfile(
     avatarAutonomyLevel,
     communicationStyle,
     socialStyle: extroversion >= 4 ? "愿意回应和发起互动" : "更重视熟人和低压力互动",
-    emotionalStyle
+    emotionalStyle,
+    tone: tones,
+    expressionRules,
+    friendAiLevel
   });
 }

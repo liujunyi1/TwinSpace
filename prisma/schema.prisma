@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -33,6 +34,17 @@ model User {
   messages            Message[]
   avatarChatSessions  AvatarChatSession[]
   aiGenerationLogs    AIGenerationLog[]
+  avatarProfile       AvatarProfile?
+  avatarSources       AvatarKnowledgeSource[]
+  avatarKnowledge     AvatarKnowledgePage[]
+  avatarCalibrations  AvatarCalibrationCase[]
+  avatarAgentSetting  AvatarAgentSetting?
+  conversationAgentSettings ConversationAgentSetting[]
+  ownedAgentTasks     AgentTask[] @relation("AgentTaskOwner")
+  hiddenMessages      MessageHiddenFor[]
+  socialAgentPolicy   SocialAgentPolicy?
+  ownedSocialTasks    SocialAgentTask[] @relation("SocialTaskOwner")
+  targetedSocialTasks SocialAgentTask[] @relation("SocialTaskTargetAuthor")
 }
 
 model Follow {
@@ -62,6 +74,88 @@ model PersonalityProfile {
   updatedAt             DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AvatarProfile {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  privateName       String    @default("")
+  privateAvatarUrl  String?
+  status            String    @default("UNBUILT")
+  knowledgeRevision Int       @default(0)
+  policyRevision    Int       @default(1)
+  calibratedAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AvatarKnowledgeSource {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  sourceKey String
+  label     String
+  content   String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  citations AvatarKnowledgeCitation[]
+
+  @@unique([userId, kind, sourceKey])
+  @@index([userId, kind, enabled])
+}
+
+model AvatarKnowledgePage {
+  id                 String   @id @default(cuid())
+  userId             String
+  category           String
+  title              String
+  content            String
+  confidence         Float    @default(0.8)
+  confirmationStatus String   @default("AUTO")
+  enabled            Boolean  @default(true)
+  revision           Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user      User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  citations AvatarKnowledgeCitation[]
+
+  @@index([userId, category, confirmationStatus])
+}
+
+model AvatarKnowledgeCitation {
+  id          String @id @default(cuid())
+  knowledgeId String
+  sourceId    String
+
+  knowledge AvatarKnowledgePage  @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+  source    AvatarKnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([knowledgeId, sourceId])
+  @@index([sourceId])
+}
+
+model AvatarCalibrationCase {
+  id                String   @id @default(cuid())
+  userId            String
+  kind              String
+  scenario          String
+  generatedResponse String
+  editedResponse    String?
+  status            String   @default("GENERATED")
+  knowledgeRevision Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@index([userId, status, knowledgeRevision])
 }
 
 model OnboardingAnswer {
@@ -124,6 +218,7 @@ model Post {
   likes    PostLike[]
   comments Comment[]
   reposts  Repost[]
+  socialAgentTasks SocialAgentTask[]
 
   @@index([createdAt])
 }
@@ -146,6 +241,7 @@ model Comment {
   parentId          String?
   content           String
   generatedByAvatar Boolean  @default(false)
+  socialAgentTaskId String?  @unique
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -154,6 +250,7 @@ model Comment {
   parent  Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
   replies Comment[]     @relation("CommentReplies")
   likes   CommentLike[]
+  socialAgentTask SocialAgentTask? @relation("SocialTaskComment", fields: [socialAgentTaskId], references: [id], onDelete: SetNull)
 
   @@index([postId, createdAt])
 }
@@ -185,11 +282,15 @@ model Conversation {
   type      String
   title     String
   aiMode    String   @default("MANUAL")
+  directKey String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  ConversationMember[]
-  messages Message[]
+  members       ConversationMember[]
+  messages      Message[]
+  agentSettings ConversationAgentSetting[]
+  agentTasks    AgentTask[]
+  generationLogs AIGenerationLog[]
 }
 
 model ConversationMember {
@@ -208,6 +309,7 @@ model Message {
   id             String   @id @default(cuid())
   conversationId String
   senderId       String?
+  agentTaskId    String?  @unique
   content        String
   senderMode     String   @default("HUMAN")
   createdAt      DateTime @default(now())
@@ -215,8 +317,180 @@ model Message {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  agentTask    AgentTask?   @relation("AgentTaskOutput", fields: [agentTaskId], references: [id], onDelete: SetNull)
+  taskTrigger  AgentTaskTrigger? @relation("AgentTaskTriggerMessage")
+  hiddenFor    MessageHiddenFor[]
+  generationLogs AIGenerationLog[]
 
   @@index([conversationId, createdAt])
+}
+
+model AvatarAgentSetting {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  enabled              Boolean  @default(false)
+  defaultMode          String   @default("MANUAL")
+  assistAutoDraft      Boolean  @default(false)
+  delayMode            String   @default("SHORT")
+  customDelaySeconds   Int      @default(60)
+  sendBufferSeconds    Int      @default(15)
+  timezone             String   @default("Asia/Shanghai")
+  activeWindowsJson    String   @default("[]")
+  receiveAi            Boolean  @default(true)
+  policyRevision       Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConversationAgentSetting {
+  id                   String   @id @default(cuid())
+  conversationId       String
+  userId               String
+  modeOverride         String?
+  delayOverride        String?
+  customDelaySeconds   Int?
+  activeWindowMode     String   @default("INHERIT")
+  activeWindowsJson    String?
+  receiveAiFromContact String   @default("INHERIT")
+  revision             Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, updatedAt])
+}
+
+model AgentTask {
+  id               String    @id @default(cuid())
+  ownerId          String
+  conversationId   String
+  kind             String
+  status           String    @default("PENDING")
+  activeKey        String?   @unique
+  idempotencyKey   String    @unique
+  runAt            DateTime
+  readyAt          DateTime?
+  leaseToken       String?
+  leaseUntil       DateTime?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3)
+  draftContent     String?
+  cancelReason     String?
+  error            String?
+  model            String?
+  policyRevision   Int       @default(1)
+  knowledgeRevision Int      @default(0)
+  contentExpiresAt DateTime?
+  redactedAt       DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  owner         User               @relation("AgentTaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  conversation  Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  triggers      AgentTaskTrigger[]
+  outputMessage Message?           @relation("AgentTaskOutput")
+  generationLogs AIGenerationLog[]
+
+  @@index([status, runAt])
+  @@index([ownerId, status, createdAt])
+  @@index([conversationId, status])
+}
+
+model AgentTaskTrigger {
+  id        String   @id @default(cuid())
+  taskId    String
+  messageId String   @unique
+  createdAt DateTime @default(now())
+
+  task    AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  message Message   @relation("AgentTaskTriggerMessage", fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+model AgentWorkerHeartbeat {
+  id         String   @id
+  status     String   @default("ONLINE")
+  startedAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model SocialAgentPolicy {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  enabled             Boolean   @default(false)
+  mode                String    @default("OFF")
+  scope               String    @default("FOLLOWING")
+  timezone            String    @default("Asia/Shanghai")
+  activeWindowsJson   String    @default("[]")
+  dailyBatchMin       Int       @default(2)
+  dailyBatchMax       Int       @default(4)
+  dailyCommentLimit   Int       @default(3)
+  authorCooldownHours Int       @default(24)
+  nextRunAt           DateTime?
+  policyRevision      Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks SocialAgentTask[]
+}
+
+model SocialAgentTask {
+  id               String    @id @default(cuid())
+  ownerId          String
+  policyId         String
+  postId           String
+  targetAuthorId   String
+  status           String    @default("PENDING")
+  mode             String
+  idempotencyKey   String    @unique
+  runAt            DateTime
+  leaseToken       String?
+  leaseUntil       DateTime?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3)
+  draftContent     String?
+  decisionReason   String?
+  capabilityStatus String?
+  error            String?
+  model            String?
+  policyRevision   Int
+  contentExpiresAt DateTime?
+  redactedAt       DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  owner        User              @relation("SocialTaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  targetAuthor User              @relation("SocialTaskTargetAuthor", fields: [targetAuthorId], references: [id], onDelete: Cascade)
+  policy       SocialAgentPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  post         Post              @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment      Comment?          @relation("SocialTaskComment")
+
+  @@index([status, runAt])
+  @@index([ownerId, createdAt])
+  @@index([ownerId, targetAuthorId, completedAt])
+}
+
+model MessageHiddenFor {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, createdAt])
 }
 
 model AvatarChatSession {
@@ -231,13 +505,17 @@ model AvatarChatSession {
 }
 
 model AvatarChatMessage {
-  id        String   @id @default(cuid())
-  sessionId String
-  role      String
-  content   String
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  sessionId        String
+  role             String
+  content          String
+  status           String   @default("COMPLETE")
+  replyToMessageId String?
+  createdAt        DateTime @default(now())
 
   session AvatarChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
 }
 
 model AIGenerationLog {
@@ -245,11 +523,28 @@ model AIGenerationLog {
   userId             String
   taskType           String
   sourceId           String?
-  inputSummary       String
-  output             String
+  agentTaskId        String?
+  conversationId     String?
+  messageId          String?
+  inputSummary       String?
+  output             String?
   accepted           Boolean  @default(false)
   finalEditedContent String?
+  model              String?
+  status             String   @default("SUCCEEDED")
+  policyRevision     Int?
+  knowledgeRevision  Int?
+  error               String?
+  expiresAt           DateTime?
+  redactedAt          DateTime?
   createdAt          DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask?    @relation(fields: [agentTaskId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message      Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([agentTaskId])
+  @@index([expiresAt])
 }

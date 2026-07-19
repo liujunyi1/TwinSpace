@@ -1,16 +1,21 @@
 import Link from "next/link";
 import { deleteCommentAction } from "@/app/actions";
+import { SocialCommentDeleteButton } from "@/app/(app)/avatar/social/social-comment-delete-button";
 import { Avatar } from "@/components/avatar";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { requireUser } from "@/lib/auth";
+import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime } from "@/lib/utils";
 
 export default async function MyCommentsPage() {
   const user = await requireUser();
   const comments = await prisma.comment.findMany({
-    where: { authorId: user.id },
+    where: {
+      authorId: user.id,
+      post: { is: visiblePostWhere(user.id) }
+    },
     orderBy: { createdAt: "desc" },
     include: { post: { include: { author: true } } }
   });
@@ -27,13 +32,24 @@ export default async function MyCommentsPage() {
             <article key={comment.id} className="card p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm leading-6">{comment.content}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {comment.generatedByAvatar ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                        AI 分身代理
+                      </span>
+                    ) : null}
+                    <p className="text-sm leading-6">{comment.content}</p>
+                  </div>
                   <p className="mt-2 text-xs text-muted">{formatRelativeTime(comment.createdAt)}</p>
                 </div>
-                <form action={deleteCommentAction} className="shrink-0">
-                  <input type="hidden" name="commentId" value={comment.id} />
-                  <ConfirmSubmitButton message="确定删除这条评论吗？" />
-                </form>
+                {comment.generatedByAvatar ? (
+                  <SocialCommentDeleteButton commentId={comment.id} />
+                ) : (
+                  <form action={deleteCommentAction} className="shrink-0">
+                    <input type="hidden" name="commentId" value={comment.id} />
+                    <ConfirmSubmitButton message="确定删除这条评论吗？" />
+                  </form>
+                )}
               </div>
               <div className="mt-4 rounded-[24px] bg-surface p-4">
                 <div className="mb-2 flex items-center gap-2">

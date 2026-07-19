@@ -49,7 +49,7 @@ export default function CreatePage({
               <Shield className="h-4 w-4" aria-hidden />
               <select name="visibility" className="min-w-0 flex-1 bg-transparent outline-none">
                 <option value="PUBLIC">公开</option>
-                <option value="FRIENDS">好友可见</option>
+                <option value="FRIENDS">互相关注可见</option>
                 <option value="PRIVATE">仅自己</option>
               </select>
             </label>
