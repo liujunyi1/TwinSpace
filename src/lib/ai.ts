@@ -15,6 +15,25 @@ export type ChatMessage = {
   content: string;
 };
 
+export type AiCapability = "text" | "image" | "stream";
+
+const supportedAiCapabilities = new Set<AiCapability>(["text", "image", "stream"]);
+
+export function getAiCapabilities(): AiCapability[] {
+  const configured = (process.env.AI_CAPABILITIES || "text")
+    .split(",")
+    .map((capability) => capability.trim().toLowerCase())
+    .filter((capability): capability is AiCapability =>
+      supportedAiCapabilities.has(capability as AiCapability)
+    );
+  const capabilities = [...new Set(configured)];
+  return capabilities.length > 0 ? capabilities : ["text"];
+}
+
+export type AiTextStreamResult =
+  | { mode: "stream"; chunks: AsyncIterable<string> }
+  | { mode: "complete"; text: string };
+
 const textResponseSchema = z.object({ text: z.string().min(1) });
 
 function aiConfig() {
@@ -73,6 +92,127 @@ async function callStructured<T>(
   }
 }
 
+type TextStreamRequest = {
+  system: string;
+  user: string;
+  fallback: () => Promise<string>;
+};
+
+function parseSseDataLine(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) {
+    return { done: false, content: null as string | null };
+  }
+
+  const data = trimmed.slice(5).trim();
+  if (!data) return { done: false, content: null as string | null };
+  if (data === "[DONE]") return { done: true, content: null as string | null };
+
+  const event = JSON.parse(data) as {
+    choices?: Array<{ delta?: { content?: string | null } }>;
+  };
+  const content = event.choices?.[0]?.delta?.content;
+  return {
+    done: false,
+    content: typeof content === "string" && content.length > 0 ? content : null
+  };
+}
+
+async function* openAiSseChunks(
+  body: ReadableStream<Uint8Array>
+): AsyncIterable<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const event = parseSseDataLine(line);
+        if (event.done) return;
+        if (event.content) yield event.content;
+      }
+    }
+
+    if (buffer) {
+      const event = parseSseDataLine(buffer);
+      if (!event.done && event.content) yield event.content;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function createTextStream(
+  request: TextStreamRequest,
+  signal?: AbortSignal
+): Promise<AiTextStreamResult> {
+  const config = aiConfig();
+  const canStream =
+    getAiCapabilities().includes("stream") &&
+    config.provider !== "mock" &&
+    Boolean(config.apiKey) &&
+    Boolean(config.baseUrl);
+  if (!canStream) {
+    return { mode: "complete", text: await request.fallback() };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(resolveChatCompletionsUrl(config.baseUrl), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.4,
+        stream: true,
+        messages: [
+          { role: "system", content: request.system },
+          { role: "user", content: request.user }
+        ]
+      }),
+      signal
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { mode: "complete", text: await request.fallback() };
+  }
+
+  if (!response.ok) {
+    return { mode: "complete", text: await request.fallback() };
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  if (contentType.includes("text/event-stream") && response.body) {
+    return { mode: "stream", chunks: openAiSseChunks(response.body) };
+  }
+
+  try {
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const text = data.choices?.[0]?.message?.content;
+    if (text) return { mode: "complete", text };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+  }
+
+  return { mode: "complete", text: await request.fallback() };
+}
+
 export async function extractPersonalityProfile(answers: Record<string, string | string[]>) {
   const derived = derivePersonalityProfile(answers);
   const ai = await callStructured(
@@ -89,12 +229,14 @@ export async function extractPersonalityProfile(answers: Record<string, string |
   });
 }
 
-export async function generateAvatarReply(context: {
+export type GenerateAvatarReplyInput = {
   nickname: string;
   profileSummary: string;
   memories: string[];
   messages: ChatMessage[];
-}) {
+};
+
+export async function generateAvatarReply(context: GenerateAvatarReplyInput) {
   const lastUserMessage = [...context.messages].reverse().find((message) => message.role === "user")?.content || "";
   const ai = await callStructured(
     textResponseSchema,
@@ -104,6 +246,21 @@ export async function generateAvatarReply(context: {
   return (
     ai?.text ||
     `我会按你的风格先接住这件事：${lastUserMessage.slice(0, 48)}。从你的画像看，先把感受和可执行的小步骤分开会更稳。`
+  );
+}
+
+export function createAvatarReplyStream(
+  input: GenerateAvatarReplyInput,
+  signal?: AbortSignal
+) {
+  return createTextStream(
+    {
+      system:
+        "你是用户的数字分身聊天助手。不能假装自己是真人，不编造事实，不输出心理诊断或危险建议。只输出回复正文，不要输出 JSON 或解释。",
+      user: JSON.stringify(input),
+      fallback: () => generateAvatarReply(input)
+    },
+    signal
   );
 }
 
@@ -290,4 +447,22 @@ export async function generateCalibrationReply(
     JSON.stringify({ ...input, knowledge })
   );
   return ai?.text || calibrationFallbacks[input.kind];
+}
+
+export function createCalibrationReplyStream(
+  input: GenerateCalibrationReplyInput,
+  signal?: AbortSignal
+) {
+  const knowledge = input.knowledge
+    .filter((item) => item.id.trim() && item.content.trim())
+    .slice(0, 20);
+  return createTextStream(
+    {
+      system:
+        "你正在生成 AI 分身校准样例。严格依据画像和提供的知识，以用户可评估的自然口吻作答，不得编造经历。只输出回复正文，不要输出 JSON 或解释。",
+      user: JSON.stringify({ ...input, knowledge }),
+      fallback: () => generateCalibrationReply(input)
+    },
+    signal
+  );
 }

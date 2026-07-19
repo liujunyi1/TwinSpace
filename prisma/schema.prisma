@@ -318,13 +318,17 @@ model AvatarChatSession {
 }
 
 model AvatarChatMessage {
-  id        String   @id @default(cuid())
-  sessionId String
-  role      String
-  content   String
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  sessionId        String
+  role             String
+  content          String
+  status           String   @default("COMPLETE")
+  replyToMessageId String?
+  createdAt        DateTime @default(now())
 
   session AvatarChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
 }
 
 model AIGenerationLog {
