@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker": "tsx worker/index.ts",
+    "worker:once": "tsx worker/index.ts --once",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

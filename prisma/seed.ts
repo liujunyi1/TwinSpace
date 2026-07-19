@@ -7,6 +7,10 @@ function avatar(seed: string) {
   return `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${encodeURIComponent(seed)}`;
 }
 
+function directKey(firstUserId: string, secondUserId: string) {
+  return `dm:${[firstUserId, secondUserId].sort().join(":")}`;
+}
+
 async function main() {
   await prisma.conversation.deleteMany();
   await prisma.user.deleteMany();
@@ -45,13 +49,45 @@ async function main() {
     )
   );
 
+  const stage2Users = await Promise.all(
+    [
+      {
+        username: "stage2_alice",
+        nickname: "阶段二 Alice",
+        bio: "阶段二代理聊天验收账号，默认使用 AI 托管。",
+        defaultMode: "PROXY",
+        assistAutoDraft: false
+      },
+      {
+        username: "stage2_bob",
+        nickname: "阶段二 Bob",
+        bio: "阶段二代理聊天验收账号，默认使用 AI 辅助。",
+        defaultMode: "ASSIST",
+        assistAutoDraft: true
+      }
+    ].map((account) =>
+      prisma.user.create({
+        data: {
+          username: account.username,
+          email: `${account.username}@twinspace.local`,
+          nickname: account.nickname,
+          passwordHash,
+          avatarUrl: avatar(account.username),
+          bio: account.bio
+        }
+      })
+    )
+  );
+
   await prisma.follow.createMany({
     data: [
       { followerId: demo.id, followingId: friends[0].id },
       { followerId: demo.id, followingId: friends[2].id },
       { followerId: friends[0].id, followingId: demo.id },
       { followerId: friends[1].id, followingId: demo.id },
-      { followerId: friends[3].id, followingId: demo.id }
+      { followerId: friends[3].id, followingId: demo.id },
+      { followerId: stage2Users[0].id, followingId: stage2Users[1].id },
+      { followerId: stage2Users[1].id, followingId: stage2Users[0].id }
     ]
   });
 
@@ -185,6 +221,8 @@ async function main() {
       data: {
         title: item.title,
         type: item.type,
+        aiMode: item.type === "HUMAN" ? "MANUAL" : "MANUAL",
+        directKey: item.type === "HUMAN" ? directKey(demo.id, item.other.id) : null,
         members: {
           create: [
             { userId: demo.id, role: "OWNER" },
@@ -214,6 +252,140 @@ async function main() {
     });
   }
 
+  const stage2Revision = 1;
+  const stage2CalibratedAt = new Date();
+  const stage2Profiles = [
+    {
+      user: stage2Users[0],
+      summary: "表达直接、友好，习惯先回应对方的重点，再给出简短追问。",
+      communicationStyle: "自然、简洁、可靠，通常回复两三句。",
+      socialStyle: "重视熟人之间稳定且不过度打扰的联系。",
+      emotionalStyle: "先接住情绪，再讨论具体行动。",
+      defaultMode: "PROXY",
+      assistAutoDraft: false
+    },
+    {
+      user: stage2Users[1],
+      summary: "语气温和、思路清楚，倾向先确认理解是否准确。",
+      communicationStyle: "克制、具体，避免夸张表达。",
+      socialStyle: "偏好低压力的日常交流。",
+      emotionalStyle: "用简短共情表达支持。",
+      defaultMode: "ASSIST",
+      assistAutoDraft: true
+    }
+  ];
+
+  for (const profile of stage2Profiles) {
+    await prisma.personalityProfile.create({
+      data: {
+        userId: profile.user.id,
+        summary: profile.summary,
+        traitsJson: JSON.stringify({
+          labels: ["友好", "清晰", "可靠"],
+          expressionRules: ["回复简洁", "不连续使用感叹号"]
+        }),
+        communicationStyle: profile.communicationStyle,
+        socialStyle: profile.socialStyle,
+        emotionalStyle: profile.emotionalStyle,
+        replyLength: "两三句",
+        emojiPreference: "偶尔用",
+        aiAutonomyLevel: profile.defaultMode
+      }
+    });
+    await prisma.avatarProfile.create({
+      data: {
+        userId: profile.user.id,
+        privateName: `${profile.user.nickname}的分身`,
+        status: "ACTIVE",
+        knowledgeRevision: stage2Revision,
+        policyRevision: stage2Revision,
+        calibratedAt: stage2CalibratedAt
+      }
+    });
+    await prisma.avatarAgentSetting.create({
+      data: {
+        userId: profile.user.id,
+        enabled: true,
+        defaultMode: profile.defaultMode,
+        assistAutoDraft: profile.assistAutoDraft,
+        delayMode: "SHORT",
+        customDelaySeconds: 60,
+        sendBufferSeconds: 15,
+        timezone: "Asia/Shanghai",
+        activeWindowsJson: "[]",
+        receiveAi: true,
+        policyRevision: stage2Revision
+      }
+    });
+    await prisma.avatarCalibrationCase.createMany({
+      data: [
+        ["DAILY_CHAT", "朋友问你最近在忙什么。", "最近在收尾一些事情，节奏还算稳。你呢？"],
+        ["COMFORT", "朋友说今天有些疲惫。", "听起来今天消耗挺大，先让自己缓一会儿也可以。"],
+        ["REFUSAL", "朋友提出一个你不方便答应的请求。", "这次我可能没法答应，但可以一起看看有没有别的办法。"],
+        ["FEED_COMMENT", "朋友分享了一条日常动态。", "这个瞬间挺有共鸣的，尤其是你提到的那个细节。"]
+      ].map(([kind, scenario, generatedResponse]) => ({
+        userId: profile.user.id,
+        kind,
+        scenario,
+        generatedResponse,
+        editedResponse: generatedResponse,
+        status: "APPROVED",
+        knowledgeRevision: stage2Revision
+      }))
+    });
+  }
+
+  const stage2Conversation = await prisma.conversation.create({
+    data: {
+      title: "阶段二代理聊天验收",
+      type: "HUMAN",
+      aiMode: "MANUAL",
+      directKey: directKey(stage2Users[0].id, stage2Users[1].id),
+      members: {
+        create: [
+          { userId: stage2Users[0].id, role: "OWNER" },
+          { userId: stage2Users[1].id, role: "MEMBER" }
+        ]
+      }
+    }
+  });
+  await prisma.conversationAgentSetting.createMany({
+    data: [
+      {
+        conversationId: stage2Conversation.id,
+        userId: stage2Users[0].id,
+        modeOverride: "PROXY",
+        activeWindowMode: "INHERIT",
+        receiveAiFromContact: "ALLOW",
+        revision: stage2Revision
+      },
+      {
+        conversationId: stage2Conversation.id,
+        userId: stage2Users[1].id,
+        modeOverride: "ASSIST",
+        activeWindowMode: "INHERIT",
+        receiveAiFromContact: "ALLOW",
+        revision: stage2Revision
+      }
+    ]
+  });
+  await prisma.message.createMany({
+    data: [
+      {
+        conversationId: stage2Conversation.id,
+        senderId: stage2Users[1].id,
+        content: "这是一条用于触发 Alice 分身托管的真人消息。",
+        senderMode: "HUMAN"
+      },
+      {
+        conversationId: stage2Conversation.id,
+        senderId: stage2Users[0].id,
+        content: "收到，我们可以用这个会话验收辅助与托管模式。",
+        senderMode: "HUMAN"
+      }
+    ]
+  });
+
   const avatarSession = await prisma.avatarChatSession.create({
     data: { userId: demo.id, title: "默认对话" }
   });
@@ -238,6 +410,7 @@ async function main() {
   });
 
   console.log("Seed complete. Demo account: demo / TwinSpace123!");
+  console.log("Stage 2 accounts: stage2_alice / TwinSpace123!, stage2_bob / TwinSpace123!");
 }
 
 main()

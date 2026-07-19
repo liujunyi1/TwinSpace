@@ -1,6 +1,19 @@
 import Link from "next/link";
-import { BookOpen, Bot, ChevronRight, CircleCheck, MessagesSquare, Sparkles } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Bot,
+  ChevronRight,
+  CircleCheck,
+  MessagesSquare,
+  Settings2,
+  Sparkles
+} from "lucide-react";
+import { GlobalAgentToggle } from "@/app/(app)/avatar/global-agent-toggle";
+import { getGlobalAgentSettingsView } from "@/lib/agent/chat-policy";
 import { requireUser } from "@/lib/auth";
+import type { GlobalAgentSettingsView } from "@/lib/client/agent-view-models";
 import { prisma } from "@/lib/prisma";
 
 function statusLabel(status?: string) {
@@ -12,9 +25,25 @@ function statusLabel(status?: string) {
   return "尚未构建";
 }
 
+function heartbeatIsOnline(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const heartbeat = value as Record<string, unknown>;
+  const timestamp = heartbeat.lastSeenAt ?? heartbeat.heartbeatAt ?? heartbeat.updatedAt;
+  if (!(timestamp instanceof Date) && typeof timestamp !== "string") return false;
+  return Date.now() - new Date(timestamp).getTime() < 90_000;
+}
+
 export default async function AvatarPage() {
   const user = await requireUser();
-  const [avatarProfile, sourceCount, knowledgeCount, confirmedKnowledgeCount, calibrationCases] =
+  const [
+    avatarProfile,
+    sourceCount,
+    knowledgeCount,
+    confirmedKnowledgeCount,
+    calibrationCases,
+    globalSettingsRaw,
+    heartbeat
+  ] =
     await Promise.all([
       prisma.avatarProfile.findUnique({ where: { userId: user.id } }),
       prisma.avatarKnowledgeSource.count({ where: { userId: user.id, enabled: true } }),
@@ -25,7 +54,9 @@ export default async function AvatarPage() {
       prisma.avatarCalibrationCase.findMany({
         where: { userId: user.id },
         select: { kind: true, status: true, knowledgeRevision: true }
-      })
+      }),
+      getGlobalAgentSettingsView(user.id),
+      prisma.agentWorkerHeartbeat.findFirst()
     ]);
 
   const revision = avatarProfile?.knowledgeRevision ?? 0;
@@ -33,6 +64,9 @@ export default async function AvatarPage() {
     (item) => item.status === "APPROVED" && item.knowledgeRevision === revision
   ).length;
   const chatReady = avatarProfile?.status === "ACTIVE" || avatarProfile?.status === "PAUSED";
+  const avatarActive = avatarProfile?.status === "ACTIVE";
+  const workerOnline = heartbeatIsOnline(heartbeat);
+  const globalSettings = globalSettingsRaw as unknown as GlobalAgentSettingsView;
   const primaryHref = chatReady
     ? "/avatar/chat"
     : sourceCount === 0 || knowledgeCount === 0
@@ -85,6 +119,26 @@ export default async function AvatarPage() {
         </Link>
       </section>
 
+      <section className="mt-4">
+        <GlobalAgentToggle
+          initialEnabled={Boolean(globalSettings?.enabled)}
+          avatarActive={avatarActive}
+          workerOnline={workerOnline}
+        />
+      </section>
+
+      {!workerOnline ? (
+        <section className="mt-3 flex items-start gap-3 rounded-[24px] bg-red-50 p-4 text-red-700">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold">后台 Worker 离线</p>
+            <p className="mt-1 text-xs leading-5">
+              聊天辅助和自动托管暂时不会执行。你的设置和等待任务仍会保留。
+            </p>
+          </div>
+        </section>
+      ) : null}
+
       <section className="mt-5 grid grid-cols-3 gap-3">
         <div className="soft-panel p-4 text-center">
           <p className="text-2xl font-semibold">{sourceCount}</p>
@@ -101,6 +155,28 @@ export default async function AvatarPage() {
       </section>
 
       <section className="mt-5 space-y-3">
+        <Link href="/avatar/settings" className="soft-panel flex items-center gap-4 px-5 py-4">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-surface">
+            <Settings2 className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">代理设置</h2>
+            <p className="mt-1 text-sm text-muted">模式、延迟、时间段和接收权限</p>
+          </div>
+          <ChevronRight className="h-5 w-5 text-muted" aria-hidden />
+        </Link>
+
+        <Link href="/avatar/activity" className="soft-panel flex items-center gap-4 px-5 py-4">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-surface">
+            <Activity className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">活动中心</h2>
+            <p className="mt-1 text-sm text-muted">等待、已发送、失败、取消和删除记录</p>
+          </div>
+          <ChevronRight className="h-5 w-5 text-muted" aria-hidden />
+        </Link>
+
         <Link href="/avatar/build" className="soft-panel flex items-center gap-4 px-5 py-4">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-surface">
             <Sparkles className="h-5 w-5" aria-hidden />

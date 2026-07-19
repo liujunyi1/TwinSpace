@@ -63,3 +63,96 @@ export const calibrationApprovalSchema = z.object({
   kind: calibrationKindSchema,
   content: z.string().trim().min(1, "校准回复不能为空").max(1200)
 });
+
+export const agentModeSchema = z.enum(["MANUAL", "ASSIST", "PROXY"]);
+export const agentToggleSchema = z.boolean();
+export const agentModeOverrideSchema = z.enum(["INHERIT", "MANUAL", "ASSIST", "PROXY"]);
+export const agentDelayModeSchema = z.enum(["IMMEDIATE", "SHORT", "LONG", "CUSTOM"]);
+export const agentDelayOverrideSchema = z.enum([
+  "INHERIT",
+  "IMMEDIATE",
+  "SHORT",
+  "LONG",
+  "CUSTOM"
+]);
+export const agentActiveWindowModeSchema = z.enum(["INHERIT", "ALWAYS", "CUSTOM"]);
+
+const timeOfDaySchema = z
+  .string()
+  .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "时间格式必须为 HH:mm");
+
+export const agentActiveWindowSchema = z
+  .object({
+    weekday: z.number().int().min(0).max(6),
+    start: timeOfDaySchema,
+    end: timeOfDaySchema
+  })
+  .refine((value) => value.start < value.end, {
+    message: "结束时间必须晚于开始时间",
+    path: ["end"]
+  });
+
+export const globalAgentSettingsSchema = z
+  .object({
+    defaultMode: agentModeSchema,
+    assistAutoDraft: z.boolean(),
+    delayMode: agentDelayModeSchema,
+    customDelaySeconds: z.number().int().min(1).max(86400),
+    sendBufferSeconds: z.number().int().min(0).max(60),
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^(?:UTC|[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+)$/, "请输入有效的 IANA 时区"),
+    activeWindows: z.array(agentActiveWindowSchema).max(56),
+    receiveAi: z.boolean()
+  })
+  .superRefine((value, context) => {
+    if (value.delayMode === "CUSTOM" && value.customDelaySeconds < 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customDelaySeconds"],
+        message: "自定义延迟必须大于 0"
+      });
+    }
+  });
+
+export const conversationAgentSettingsSchema = z
+  .object({
+    conversationId: z.string().min(1),
+    modeOverride: agentModeOverrideSchema,
+    delayOverride: agentDelayOverrideSchema,
+    customDelaySeconds: z.number().int().min(1).max(86400),
+    activeWindowMode: agentActiveWindowModeSchema,
+    activeWindows: z.array(agentActiveWindowSchema).max(56),
+    receiveAiFromContact: z.boolean()
+  })
+  .superRefine((value, context) => {
+    if (value.delayOverride === "CUSTOM" && value.customDelaySeconds < 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customDelaySeconds"],
+        message: "自定义延迟必须大于 0"
+      });
+    }
+    if (value.activeWindowMode === "CUSTOM" && value.activeWindows.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeWindows"],
+        message: "自定义活跃时间至少需要一个时段"
+      });
+    }
+  });
+
+export const humanChatMessageSchema = z.object({
+  conversationId: z.string().min(1),
+  content: z.string().trim().min(1, "消息不能为空").max(1000)
+});
+
+export const assistDraftSendSchema = z.object({
+  taskId: z.string().min(1),
+  content: z.string().trim().min(1, "消息不能为空").max(1000)
+});
+
+export const agentEntityIdSchema = z.string().min(1).max(120);

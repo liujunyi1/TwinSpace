@@ -25,9 +25,9 @@ import {
   compileAvatarKnowledge,
   extractPersonalityProfile,
   generateAvatarReply,
-  generateCalibrationReply,
-  generateFriendReplyDraft
+  generateCalibrationReply
 } from "@/lib/ai";
+import { sendHumanChatMessageAction } from "@/app/agent-actions";
 import { normalizeAnswers } from "@/lib/onboarding";
 import { saveAvatarFile, savePostImageFiles } from "@/lib/upload";
 import {
@@ -528,54 +528,10 @@ export async function startConversationAction(formData: FormData) {
 }
 
 export async function sendFriendMessageAction(formData: FormData) {
-  const user = await requireUser();
+  await requireUser();
   const parsed = messageSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return;
-
-  const membership = await prisma.conversationMember.findUnique({
-    where: {
-      conversationId_userId: {
-        conversationId: parsed.data.conversationId,
-        userId: user.id
-      }
-    }
-  });
-  if (!membership) return;
-
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: parsed.data.conversationId },
-    include: { messages: { orderBy: { createdAt: "desc" }, take: 8 } }
-  });
-  if (!conversation) return;
-
-  await prisma.message.create({
-    data: {
-      conversationId: parsed.data.conversationId,
-      senderId: user.id,
-      content: parsed.data.content,
-      senderMode: conversation.aiMode === "PROXY" ? "AI_PROXY" : "HUMAN"
-    }
-  });
-
-  if (conversation.type === "AI_CONTACT") {
-    const profile = await prisma.personalityProfile.findUnique({ where: { userId: user.id } });
-    const text = await generateFriendReplyDraft({
-      profileSummary: profile?.summary || "暂无画像",
-      conversationTitle: conversation.title,
-      recentMessages: conversation.messages.map((message) => message.content).reverse()
-    });
-    await prisma.message.create({
-      data: {
-        conversationId: parsed.data.conversationId,
-        senderId: null,
-        content: text,
-        senderMode: "AI"
-      }
-    });
-  }
-
-  revalidatePath(`/messages/${parsed.data.conversationId}`);
-  revalidatePath("/messages");
+  await sendHumanChatMessageAction(parsed.data);
 }
 
 export async function sendAvatarMessageAction(formData: FormData) {

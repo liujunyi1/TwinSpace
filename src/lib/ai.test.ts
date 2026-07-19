@@ -1,8 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
-import { resolveChatCompletionsUrl } from "@/lib/ai";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  generateFriendReplyDraft,
+  resolveChatCompletionsUrl
+} from "@/lib/ai";
 import { derivePersonalityProfile } from "@/lib/onboarding";
 
 vi.mock("server-only", () => ({}));
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("resolveChatCompletionsUrl", () => {
   it("normalizes API roots, model-list endpoints, and complete endpoints", () => {
@@ -17,6 +26,51 @@ describe("resolveChatCompletionsUrl", () => {
         "http://127.0.0.1:8317/v1/chat/completions/"
       )
     ).toBe("http://127.0.0.1:8317/v1/chat/completions");
+  });
+});
+
+describe("generateFriendReplyDraft", () => {
+  it("keeps AI_CONTACT separate and includes the latest user message", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AI_BASE_URL", "http://127.0.0.1:8317/v1");
+    vi.stubEnv("AI_API_KEY", "test-key");
+    vi.stubEnv("AI_MODEL", "test-model");
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({ text: "独立联系人回复" })
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateFriendReplyDraft({
+      profileSummary: "正在聊天的用户偏好简短回复",
+      conversationTitle: "Orbit",
+      recentMessages: ["之前的消息"],
+      latestUserMessage: "这是刚刚发送的新消息"
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const payload = JSON.parse(body.messages[1].content) as {
+      latestUserMessage: string;
+      recentMessages: string[];
+    };
+    expect(payload.latestUserMessage).toBe("这是刚刚发送的新消息");
+    expect(payload.recentMessages.at(-1)).toBe("这是刚刚发送的新消息");
+    expect(body.messages[0].content).toContain("独立 AI 联系人");
+    expect(body.messages[0].content).toContain("不是任何真人用户的分身代理");
   });
 });
 

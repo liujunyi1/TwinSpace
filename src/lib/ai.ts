@@ -2,6 +2,10 @@ import "server-only";
 
 import { z } from "zod";
 import {
+  getAiProviderConfig,
+  resolveChatCompletionsUrl
+} from "@/lib/ai-provider";
+import {
   AVATAR_KNOWLEDGE_CATEGORIES,
   sanitizeCompiledKnowledge,
   type AvatarSourceForCompilation,
@@ -9,6 +13,15 @@ import {
   type CompiledAvatarKnowledge
 } from "@/lib/agent/knowledge";
 import { derivePersonalityProfile, personalityProfileSchema } from "@/lib/onboarding";
+
+export { resolveChatCompletionsUrl } from "@/lib/ai-provider";
+export {
+  generateAssistDraft,
+  generateProxyReply,
+  type GenerateAssistDraftInput,
+  type GenerateProxyReplyInput,
+  type ProxyReplyResult
+} from "@/lib/agent/proxy-reply";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -37,22 +50,7 @@ export type AiTextStreamResult =
 const textResponseSchema = z.object({ text: z.string().min(1) });
 
 function aiConfig() {
-  const provider = process.env.AI_PROVIDER || (process.env.OPENAI_API_KEY ? "openai" : "mock");
-  return {
-    provider,
-    baseUrl: process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || "",
-    apiKey: process.env.AI_API_KEY || process.env.OPENAI_API_KEY || "",
-    model: process.env.AI_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini"
-  };
-}
-
-export function resolveChatCompletionsUrl(baseUrl: string) {
-  const normalized = baseUrl.trim().replace(/\/+$/, "");
-  if (!normalized) return "";
-  if (/\/chat\/completions$/i.test(normalized)) return normalized;
-
-  const apiRoot = normalized.replace(/\/models$/i, "");
-  return `${apiRoot}/chat/completions`;
+  return getAiProviderConfig();
 }
 
 async function callStructured<T>(
@@ -264,17 +262,36 @@ export function createAvatarReplyStream(
   );
 }
 
-export async function generateFriendReplyDraft(context: {
+export type GenerateFriendReplyDraftInput = {
   profileSummary: string;
   conversationTitle: string;
   recentMessages: string[];
-}) {
+  latestUserMessage?: string;
+};
+
+export async function generateFriendReplyDraft(context: GenerateFriendReplyDraftInput) {
+  const latestUserMessage =
+    context.latestUserMessage?.trim() || context.recentMessages.at(-1)?.trim() || "";
+  const recentMessages =
+    latestUserMessage &&
+    context.recentMessages.at(-1)?.trim() !== latestUserMessage
+      ? [...context.recentMessages, latestUserMessage]
+      : context.recentMessages;
   const ai = await callStructured(
     textResponseSchema,
-    "你是朋友聊天回复草稿助手。只生成可由用户确认后发送的草稿。只返回 JSON。",
-    JSON.stringify(context)
+    "你是会话中的独立 AI 联系人，不是任何真人用户的分身代理。profileSummary 只用于理解正在与你聊天的用户，不得模仿或代表该用户。回复 latestUserMessage，只返回 JSON。",
+    JSON.stringify({
+      ...context,
+      recentMessages,
+      latestUserMessage
+    })
   );
-  return ai?.text || "我懂你的意思。要不我们先把最紧急的点对齐一下，我再看看怎么帮你。";
+  return (
+    ai?.text ||
+    (latestUserMessage
+      ? `我看到你提到“${latestUserMessage.slice(0, 48)}”。要不我们先把最关键的点对齐一下？`
+      : "我懂你的意思。要不我们先把最紧急的点对齐一下，我再看看怎么帮你。")
+  );
 }
 
 export async function generateCommentDraft(context: {

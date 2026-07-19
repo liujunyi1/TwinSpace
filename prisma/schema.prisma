@@ -38,6 +38,10 @@ model User {
   avatarSources       AvatarKnowledgeSource[]
   avatarKnowledge     AvatarKnowledgePage[]
   avatarCalibrations  AvatarCalibrationCase[]
+  avatarAgentSetting  AvatarAgentSetting?
+  conversationAgentSettings ConversationAgentSetting[]
+  ownedAgentTasks     AgentTask[] @relation("AgentTaskOwner")
+  hiddenMessages      MessageHiddenFor[]
 }
 
 model Follow {
@@ -272,11 +276,15 @@ model Conversation {
   type      String
   title     String
   aiMode    String   @default("MANUAL")
+  directKey String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  ConversationMember[]
-  messages Message[]
+  members       ConversationMember[]
+  messages      Message[]
+  agentSettings ConversationAgentSetting[]
+  agentTasks    AgentTask[]
+  generationLogs AIGenerationLog[]
 }
 
 model ConversationMember {
@@ -295,6 +303,7 @@ model Message {
   id             String   @id @default(cuid())
   conversationId String
   senderId       String?
+  agentTaskId    String?  @unique
   content        String
   senderMode     String   @default("HUMAN")
   createdAt      DateTime @default(now())
@@ -302,8 +311,122 @@ model Message {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  agentTask    AgentTask?   @relation("AgentTaskOutput", fields: [agentTaskId], references: [id], onDelete: SetNull)
+  taskTrigger  AgentTaskTrigger? @relation("AgentTaskTriggerMessage")
+  hiddenFor    MessageHiddenFor[]
+  generationLogs AIGenerationLog[]
 
   @@index([conversationId, createdAt])
+}
+
+model AvatarAgentSetting {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  enabled              Boolean  @default(false)
+  defaultMode          String   @default("MANUAL")
+  assistAutoDraft      Boolean  @default(false)
+  delayMode            String   @default("SHORT")
+  customDelaySeconds   Int      @default(60)
+  sendBufferSeconds    Int      @default(15)
+  timezone             String   @default("Asia/Shanghai")
+  activeWindowsJson    String   @default("[]")
+  receiveAi            Boolean  @default(true)
+  policyRevision       Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConversationAgentSetting {
+  id                   String   @id @default(cuid())
+  conversationId       String
+  userId               String
+  modeOverride         String?
+  delayOverride        String?
+  customDelaySeconds   Int?
+  activeWindowMode     String   @default("INHERIT")
+  activeWindowsJson    String?
+  receiveAiFromContact String   @default("INHERIT")
+  revision             Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, updatedAt])
+}
+
+model AgentTask {
+  id               String    @id @default(cuid())
+  ownerId          String
+  conversationId   String
+  kind             String
+  status           String    @default("PENDING")
+  activeKey        String?   @unique
+  idempotencyKey   String    @unique
+  runAt            DateTime
+  readyAt          DateTime?
+  leaseToken       String?
+  leaseUntil       DateTime?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3)
+  draftContent     String?
+  cancelReason     String?
+  error            String?
+  model            String?
+  policyRevision   Int       @default(1)
+  knowledgeRevision Int      @default(0)
+  contentExpiresAt DateTime?
+  redactedAt       DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  owner         User               @relation("AgentTaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  conversation  Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  triggers      AgentTaskTrigger[]
+  outputMessage Message?           @relation("AgentTaskOutput")
+  generationLogs AIGenerationLog[]
+
+  @@index([status, runAt])
+  @@index([ownerId, status, createdAt])
+  @@index([conversationId, status])
+}
+
+model AgentTaskTrigger {
+  id        String   @id @default(cuid())
+  taskId    String
+  messageId String   @unique
+  createdAt DateTime @default(now())
+
+  task    AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  message Message   @relation("AgentTaskTriggerMessage", fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+model AgentWorkerHeartbeat {
+  id         String   @id
+  status     String   @default("ONLINE")
+  startedAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model MessageHiddenFor {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, createdAt])
 }
 
 model AvatarChatSession {
@@ -336,11 +459,28 @@ model AIGenerationLog {
   userId             String
   taskType           String
   sourceId           String?
-  inputSummary       String
-  output             String
+  agentTaskId        String?
+  conversationId     String?
+  messageId          String?
+  inputSummary       String?
+  output             String?
   accepted           Boolean  @default(false)
   finalEditedContent String?
+  model              String?
+  status             String   @default("SUCCEEDED")
+  policyRevision     Int?
+  knowledgeRevision  Int?
+  error               String?
+  expiresAt           DateTime?
+  redactedAt          DateTime?
   createdAt          DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentTask    AgentTask?    @relation(fields: [agentTaskId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message      Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([agentTaskId])
+  @@index([expiresAt])
 }
