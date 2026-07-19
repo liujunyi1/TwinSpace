@@ -23,12 +23,11 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   compileAvatarKnowledge,
-  extractPersonalityProfile,
   generateAvatarReply,
   generateCalibrationReply
 } from "@/lib/ai";
 import { sendHumanChatMessageAction } from "@/app/agent-actions";
-import { normalizeAnswers } from "@/lib/onboarding";
+import { derivePersonalityProfile, normalizeAnswers } from "@/lib/onboarding";
 import { saveAvatarFile, savePostImageFiles } from "@/lib/upload";
 import {
   CALIBRATION_SCENARIOS,
@@ -183,7 +182,7 @@ export async function logoutAction() {
 export async function saveOnboardingAction(formData: FormData) {
   const user = await requireUser();
   const answers = normalizeAnswers(formData);
-  const profile = await extractPersonalityProfile(answers);
+  const profile = derivePersonalityProfile(answers);
   const tone = Array.isArray(profile.tone) ? profile.tone.join("、") : profile.tone;
   const expressionRules = Array.isArray(profile.expressionRules)
     ? profile.expressionRules.join("、")

@@ -1,12 +1,32 @@
 import {
-  runAgentWorkerLoop,
   runAgentWorkerOnce
 } from "@/lib/agent/chat-worker";
+import { runSocialAgentWorkerOnce } from "@/lib/agent/social-worker";
 import { prisma } from "@/lib/prisma";
+
+function wait(milliseconds: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    const timeout = setTimeout(resolve, milliseconds);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+}
+
+async function runAllWorkersOnce(signal?: AbortSignal) {
+  await runAgentWorkerOnce();
+  await runSocialAgentWorkerOnce({ signal });
+}
 
 async function main() {
   if (process.argv.includes("--once")) {
-    await runAgentWorkerOnce();
+    await runAllWorkersOnce();
     return;
   }
 
@@ -14,12 +34,15 @@ async function main() {
   const stop = () => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
-  await runAgentWorkerLoop({ signal: controller.signal, pollIntervalMs: 2000 });
+  while (!controller.signal.aborted) {
+    await runAllWorkersOnce(controller.signal);
+    await wait(2000, controller.signal);
+  }
 }
 
 main()
   .catch((error) => {
-    console.error("[chat-worker] fatal", error);
+    console.error("[agent-worker] fatal", error);
     process.exitCode = 1;
   })
   .finally(async () => {

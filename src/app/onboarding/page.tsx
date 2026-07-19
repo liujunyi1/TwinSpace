@@ -1,4 +1,5 @@
 import { saveOnboardingAction } from "@/app/actions";
+import { OnboardingSubmitButton } from "@/app/onboarding/onboarding-submit-button";
 import { onboardingQuestions } from "@/lib/onboarding";
 import { requireUser } from "@/lib/auth";
 
@@ -73,9 +74,7 @@ export default async function OnboardingPage() {
           </section>
         ))}
 
-        <button className="btn-primary w-full" type="submit">
-          生成并保存画像
-        </button>
+        <OnboardingSubmitButton />
       </form>
     </main>
   );

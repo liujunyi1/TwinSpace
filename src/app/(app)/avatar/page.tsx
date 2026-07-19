@@ -6,6 +6,7 @@ import {
   Bot,
   ChevronRight,
   CircleCheck,
+  Compass,
   MessagesSquare,
   Settings2,
   Sparkles
@@ -155,6 +156,17 @@ export default async function AvatarPage() {
       </section>
 
       <section className="mt-5 space-y-3">
+        <Link href="/avatar/social" className="soft-panel flex items-center gap-4 px-5 py-4">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-surface">
+            <Compass className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold">动态代理</h2>
+            <p className="mt-1 text-sm text-muted">浏览范围、建议草稿、自动评论和频率限制</p>
+          </div>
+          <ChevronRight className="h-5 w-5 text-muted" aria-hidden />
+        </Link>
+
         <Link href="/avatar/settings" className="soft-panel flex items-center gap-4 px-5 py-4">
           <div className="grid h-11 w-11 place-items-center rounded-2xl bg-surface">
             <Settings2 className="h-5 w-5" aria-hidden />

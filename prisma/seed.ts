@@ -56,14 +56,18 @@ async function main() {
         nickname: "阶段二 Alice",
         bio: "阶段二代理聊天验收账号，默认使用 AI 托管。",
         defaultMode: "PROXY",
-        assistAutoDraft: false
+        assistAutoDraft: false,
+        socialMode: "AUTO",
+        socialScope: "FOLLOWING"
       },
       {
         username: "stage2_bob",
         nickname: "阶段二 Bob",
         bio: "阶段二代理聊天验收账号，默认使用 AI 辅助。",
         defaultMode: "ASSIST",
-        assistAutoDraft: true
+        assistAutoDraft: true,
+        socialMode: "SUGGEST",
+        socialScope: "MUTUAL"
       }
     ].map((account) =>
       prisma.user.create({
@@ -263,6 +267,9 @@ async function main() {
       emotionalStyle: "先接住情绪，再讨论具体行动。",
       defaultMode: "PROXY",
       assistAutoDraft: false
+      ,
+      socialMode: "AUTO",
+      socialScope: "FOLLOWING"
     },
     {
       user: stage2Users[1],
@@ -272,6 +279,9 @@ async function main() {
       emotionalStyle: "用简短共情表达支持。",
       defaultMode: "ASSIST",
       assistAutoDraft: true
+      ,
+      socialMode: "SUGGEST",
+      socialScope: "MUTUAL"
     }
   ];
 
@@ -317,6 +327,21 @@ async function main() {
         policyRevision: stage2Revision
       }
     });
+    await prisma.socialAgentPolicy.create({
+      data: {
+        userId: profile.user.id,
+        enabled: true,
+        mode: profile.socialMode,
+        scope: profile.socialScope,
+        timezone: "Asia/Shanghai",
+        activeWindowsJson: "[]",
+        dailyBatchMin: 2,
+        dailyBatchMax: 4,
+        dailyCommentLimit: 3,
+        authorCooldownHours: 24,
+        policyRevision: stage2Revision
+      }
+    });
     await prisma.avatarCalibrationCase.createMany({
       data: [
         ["DAILY_CHAT", "朋友问你最近在忙什么。", "最近在收尾一些事情，节奏还算稳。你呢？"],
@@ -334,6 +359,25 @@ async function main() {
       }))
     });
   }
+
+  await prisma.post.createMany({
+    data: [
+      {
+        authorId: stage2Users[0].id,
+        content: "阶段三验收动态：今天把一个复杂需求拆成了三个可以逐步确认的小问题。",
+        topicsJson: JSON.stringify(["阶段三", "公开动态"]),
+        visibility: "PUBLIC",
+        allowComments: true
+      },
+      {
+        authorId: stage2Users[1].id,
+        content: "阶段三互关验收动态：周末准备去散步，想找一条安静、树多一点的路线。",
+        topicsJson: JSON.stringify(["阶段三", "互相关注"]),
+        visibility: "FRIENDS",
+        allowComments: true
+      }
+    ]
+  });
 
   const stage2Conversation = await prisma.conversation.create({
     data: {

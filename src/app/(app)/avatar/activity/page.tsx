@@ -1,11 +1,13 @@
 import { AvatarActivityClient } from "@/app/(app)/avatar/activity/avatar-activity-client";
 import { getGlobalAgentSettingsView } from "@/lib/agent/chat-policy";
 import { getAgentActivities } from "@/lib/agent/chat-tasks";
+import { getSocialActivities } from "@/lib/agent/social-agent";
 import { requireUser } from "@/lib/auth";
 import type {
   AgentActivityView,
   GlobalAgentSettingsView
 } from "@/lib/client/agent-view-models";
+import type { SocialActivityView } from "@/app/(app)/avatar/activity/avatar-activity-client";
 import { prisma } from "@/lib/prisma";
 
 function heartbeatIsOnline(value: unknown) {
@@ -18,8 +20,9 @@ function heartbeatIsOnline(value: unknown) {
 
 export default async function AvatarActivityPage() {
   const user = await requireUser();
-  const [activities, settings, avatarProfile, heartbeat] = await Promise.all([
+  const [activities, socialActivities, settings, avatarProfile, heartbeat] = await Promise.all([
     getAgentActivities(user.id),
+    getSocialActivities(user.id),
     getGlobalAgentSettingsView(user.id),
     prisma.avatarProfile.findUnique({
       where: { userId: user.id },
@@ -27,6 +30,22 @@ export default async function AvatarActivityPage() {
     }),
     prisma.agentWorkerHeartbeat.findFirst()
   ]);
+  const socialActivityViews: SocialActivityView[] = socialActivities.map((activity) => ({
+    id: activity.id,
+    kind: "SOCIAL_COMMENT",
+    status: activity.status,
+    postId: activity.postId,
+    postContent: activity.postExcerpt,
+    authorName: activity.targetAuthorName,
+    draft: activity.draft,
+    reason: activity.decisionReason,
+    error: activity.error,
+    capabilityStatus: activity.capabilityStatus,
+    createdAt: activity.createdAt,
+    scheduledFor: activity.runAt,
+    redacted: activity.redacted,
+    commentId: activity.commentId
+  }));
 
   return (
     <main className="page-shell pb-[calc(7rem+env(safe-area-inset-bottom))]">
@@ -37,6 +56,7 @@ export default async function AvatarActivityPage() {
       </header>
       <AvatarActivityClient
         activities={activities as unknown as AgentActivityView[]}
+        socialActivities={socialActivityViews}
         globalEnabled={(settings as unknown as GlobalAgentSettingsView).enabled}
         avatarActive={avatarProfile?.status === "ACTIVE"}
         workerOnline={heartbeatIsOnline(heartbeat)}
