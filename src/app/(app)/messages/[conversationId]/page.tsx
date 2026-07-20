@@ -1,10 +1,8 @@
 import { ConversationClient } from "@/app/(app)/messages/[conversationId]/conversation-client";
+import { MarkConversationRead } from "@/components/mark-conversation-read";
 import { getConversationAgentState } from "@/lib/agent/chat-policy";
 import { requireUser } from "@/lib/auth";
-import {
-  DEFAULT_CONVERSATION_AGENT_STATE,
-  type ConversationAgentStateView
-} from "@/lib/client/agent-view-models";
+import { mapConversationAgentState } from "@/lib/client/conversation-agent-mapper";
 import { prisma } from "@/lib/prisma";
 
 function heartbeatIsOnline(value: unknown) {
@@ -41,7 +39,14 @@ export default async function ConversationPage({
     prisma.conversation.findUnique({
       where: { id: params.conversationId },
       include: {
-        messages: { orderBy: { createdAt: "asc" }, include: { sender: true } },
+        messages: {
+          where: {
+            status: "SENT",
+            hiddenFor: { none: { userId: user.id } }
+          },
+          orderBy: { createdAt: "asc" },
+          include: { sender: true }
+        },
         members: { include: { user: true } }
       }
     }),
@@ -62,34 +67,36 @@ export default async function ConversationPage({
   const rawState = agentConfigurable
     ? await getConversationAgentState(user.id, conversation.id)
     : null;
-  const state = {
-    ...DEFAULT_CONVERSATION_AGENT_STATE,
-    ...(rawState as unknown as Partial<ConversationAgentStateView>),
-    workerOnline: heartbeatIsOnline(heartbeat),
-    tasks:
-      (rawState as unknown as Partial<ConversationAgentStateView> | null)?.tasks || []
-  };
+  const state = mapConversationAgentState(rawState, heartbeatIsOnline(heartbeat));
+
+  const lastVisibleMessage = conversation.messages.at(-1);
 
   return (
-    <ConversationClient
-      conversationId={conversation.id}
-      conversationType={String(conversation.type)}
-      title={title}
-      currentUserId={user.id}
-      currentUserName={user.nickname}
-      currentUserAvatarUrl={user.avatarUrl}
-      otherAvatarUrl={other?.avatarUrl || null}
-      initialMessages={conversation.messages.map((message) => ({
-        id: message.id,
-        senderId: message.senderId,
-        senderName: message.sender?.nickname || title,
-        senderAvatarUrl: message.sender?.avatarUrl || null,
-        content: message.content,
-        senderMode: String(message.senderMode),
-        createdAt: message.createdAt.toISOString()
-      }))}
-      initialAgentState={state}
-      agentConfigurable={agentConfigurable}
-    />
+    <>
+      <MarkConversationRead
+        conversationId={conversation.id}
+        messageId={lastVisibleMessage?.id || null}
+      />
+      <ConversationClient
+        conversationId={conversation.id}
+        conversationType={String(conversation.type)}
+        title={title}
+        currentUserId={user.id}
+        currentUserName={user.nickname}
+        currentUserAvatarUrl={user.avatarUrl}
+        otherAvatarUrl={other?.avatarUrl || null}
+        initialMessages={conversation.messages.map((message) => ({
+          id: message.id,
+          senderId: message.senderId,
+          senderName: message.sender?.nickname || title,
+          senderAvatarUrl: message.sender?.avatarUrl || null,
+          content: message.content,
+          senderMode: String(message.senderMode),
+          createdAt: message.createdAt.toISOString()
+        }))}
+        initialAgentState={state}
+        agentConfigurable={agentConfigurable}
+      />
+    </>
   );
 }

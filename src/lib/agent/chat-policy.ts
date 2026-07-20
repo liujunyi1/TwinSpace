@@ -48,6 +48,7 @@ export type GlobalAgentSettingsView = {
 export type EffectiveChatPolicy = {
   allowed: boolean;
   mode: AgentMode;
+  globalDefaultMode: AgentMode;
   delayMode: DelayMode;
   customDelaySeconds: number;
   sendBufferSeconds: number;
@@ -68,6 +69,7 @@ export type EffectiveChatPolicy = {
 
 export type ConversationAgentState = {
   effectiveMode: AgentMode;
+  globalDefaultMode: AgentMode;
   modeOverride: AgentMode | null;
   delayOverride: DelayMode | null;
   customDelaySeconds: number;
@@ -209,9 +211,10 @@ export async function getEffectiveChatPolicy(
       : recipientReceiveMode === "BLOCK"
         ? false
         : recipientGlobalSetting?.receiveAi ?? true;
+  const globalDefaultMode = agentMode(ownerSetting?.defaultMode);
   const configuredMode =
     optionalAgentMode(ownerConversationSetting?.modeOverride) ??
-    agentMode(ownerSetting?.defaultMode);
+    globalDefaultMode;
   const effectiveDelayMode =
     optionalDelayMode(ownerConversationSetting?.delayOverride) ??
     delayMode(ownerSetting?.delayMode);
@@ -242,6 +245,7 @@ export async function getEffectiveChatPolicy(
   return {
     allowed,
     mode: allowed ? configuredMode : "MANUAL",
+    globalDefaultMode,
     delayMode: effectiveDelayMode,
     customDelaySeconds:
       ownerConversationSetting?.customDelaySeconds ??
@@ -291,6 +295,7 @@ export async function getConversationAgentState(
 
   return {
     effectiveMode: policy.mode,
+    globalDefaultMode: policy.globalDefaultMode,
     modeOverride: optionalAgentMode(setting?.modeOverride),
     delayOverride: optionalDelayMode(setting?.delayOverride),
     customDelaySeconds:

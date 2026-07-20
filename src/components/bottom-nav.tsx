@@ -13,7 +13,11 @@ const items = [
   { href: "/profile", label: "我的", icon: UserRound }
 ];
 
-export function BottomNav() {
+export function BottomNav({
+  unreadConversationCount = 0
+}: {
+  unreadConversationCount?: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -35,13 +39,17 @@ export function BottomNav() {
               item.primary && "h-12 min-w-16 bg-ink text-white shadow-sm",
               item.primary && active && "scale-105"
             )}
-            aria-label={item.label}
+            aria-label={
+              item.href === "/messages" && unreadConversationCount > 0
+                ? `${item.label}，${unreadConversationCount} 个会话未读`
+                : item.label
+            }
             title={item.label}
           >
             <Icon className={cn("h-5 w-5", item.primary && "h-7 w-7")} aria-hidden />
-            {item.href === "/messages" ? (
+            {item.href === "/messages" && unreadConversationCount > 0 ? (
               <span className="absolute right-2 top-1 h-5 min-w-5 rounded-full bg-red-500 px-1 text-center text-[11px] font-semibold leading-5 text-white">
-                1
+                {unreadConversationCount > 99 ? "99+" : unreadConversationCount}
               </span>
             ) : null}
           </Link>

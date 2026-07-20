@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
+import { mapConversationActiveWindowsToDomain } from "@/lib/client/conversation-agent-mapper";
 import { generateFriendReplyDraft } from "@/lib/ai";
 import {
   cancelAllOwnerTasks,
@@ -239,9 +240,10 @@ export async function updateConversationAgentSettingsAction(
   const parsed = conversationAgentSettingsSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: firstValidationError(parsed) };
 
-  try {
-    const data = parsed.data;
-    await requireDirectHumanConversation(user.id, data.conversationId);
+    try {
+      const data = parsed.data;
+      const activeWindows = mapConversationActiveWindowsToDomain(data.activeWindows);
+      await requireDirectHumanConversation(user.id, data.conversationId);
     await prisma.conversationAgentSetting.upsert({
       where: {
         conversationId_userId: {
@@ -257,11 +259,11 @@ export async function updateConversationAgentSettingsAction(
         customDelaySeconds:
           data.delayOverride === "CUSTOM" ? data.customDelaySeconds : null,
         activeWindowMode: data.activeWindowMode,
-        activeWindowsJson:
-          data.activeWindowMode === "CUSTOM"
-            ? JSON.stringify(data.activeWindows)
-            : null,
-        receiveAiFromContact: data.receiveAiFromContact ? "ALLOW" : "BLOCK"
+          activeWindowsJson:
+            data.activeWindowMode === "CUSTOM"
+              ? JSON.stringify(activeWindows)
+              : null,
+          receiveAiFromContact: data.receiveAiFromContact
       },
       update: {
         modeOverride: data.modeOverride === "INHERIT" ? null : data.modeOverride,
@@ -269,16 +271,16 @@ export async function updateConversationAgentSettingsAction(
         customDelaySeconds:
           data.delayOverride === "CUSTOM" ? data.customDelaySeconds : null,
         activeWindowMode: data.activeWindowMode,
-        activeWindowsJson:
-          data.activeWindowMode === "CUSTOM"
-            ? JSON.stringify(data.activeWindows)
-            : null,
-        receiveAiFromContact: data.receiveAiFromContact ? "ALLOW" : "BLOCK",
+          activeWindowsJson:
+            data.activeWindowMode === "CUSTOM"
+              ? JSON.stringify(activeWindows)
+              : null,
+          receiveAiFromContact: data.receiveAiFromContact,
         revision: { increment: 1 }
       }
     });
     await cancelConversationOwnerTasks(user.id, data.conversationId);
-    if (!data.receiveAiFromContact) {
+      if (data.receiveAiFromContact === "BLOCK") {
       await cancelInboundTasks(
         user.id,
         data.conversationId,
