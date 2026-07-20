@@ -43,6 +43,10 @@ import {
   type AgentTaskView,
   type ConversationAgentStateView
 } from "@/lib/client/agent-view-models";
+import {
+  buildConversationAgentSettingsPayload,
+  optimisticConversationAgentState
+} from "@/lib/client/conversation-agent-mapper";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
 export type ConversationMessageView = {
@@ -79,6 +83,14 @@ const DELAY_OVERRIDES: AgentDelayOverride[] = [
   "CUSTOM"
 ];
 const WINDOW_MODES: AgentActiveWindowMode[] = ["INHERIT", "ALWAYS", "CUSTOM"];
+const RECEIVE_AI_MODES: Array<{
+  value: ConversationAgentStateView["receiveAiFromContact"];
+  label: string;
+}> = [
+  { value: "INHERIT", label: "继承全局" },
+  { value: "ALLOW", label: "允许" },
+  { value: "BLOCK", label: "拒绝" }
+];
 
 function resizeTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return;
@@ -134,12 +146,16 @@ export function ConversationClient({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const generationRef = useRef(0);
+  const settingsOpenRef = useRef(settingsOpen);
 
+  useEffect(() => {
+    settingsOpenRef.current = settingsOpen;
+  }, [settingsOpen]);
   useEffect(() => setMessages(initialMessages), [initialMessages]);
   useEffect(() => {
     setAgentState(initialAgentState);
-    if (!settingsOpen) setSettingsDraft(initialAgentState);
-  }, [initialAgentState, settingsOpen]);
+    if (!settingsOpenRef.current) setSettingsDraft(initialAgentState);
+  }, [initialAgentState]);
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(Date.now()), 1000);
@@ -361,20 +377,20 @@ export function ConversationClient({
   const saveConversationSettings = async () => {
     setSettingsSaving(true);
     setToast(null);
-    const result = await updateConversationAgentSettingsAction({
-      conversationId,
-      modeOverride: settingsDraft.modeOverride,
-      delayOverride: settingsDraft.delayOverride,
-      customDelaySeconds: settingsDraft.customDelaySeconds,
-      activeWindowMode: settingsDraft.activeWindowMode,
-      activeWindows: settingsDraft.activeWindows,
-      receiveAiFromContact: settingsDraft.receiveAiFromContact
-    });
+    const result = await updateConversationAgentSettingsAction(
+      buildConversationAgentSettingsPayload(conversationId, settingsDraft)
+    );
     setSettingsSaving(false);
     if (!result.ok) {
       setToast(result.error || "会话设置保存失败");
       return;
     }
+    const optimisticState = optimisticConversationAgentState(
+      agentState,
+      settingsDraft
+    );
+    setAgentState(optimisticState);
+    setSettingsDraft(optimisticState);
     setSettingsOpen(false);
     router.refresh();
   };
@@ -431,9 +447,10 @@ export function ConversationClient({
         {agentConfigurable ? (
           <button
             type="button"
-            onClick={() => {
-              setSettingsDraft(agentState);
-              setSettingsOpen(true);
+              onClick={() => {
+                setToast(null);
+                setSettingsDraft(agentState);
+                setSettingsOpen(true);
             }}
             className="inline-flex h-11 shrink-0 items-center gap-1 rounded-full bg-white px-3 text-xs font-semibold"
             aria-label="会话代理设置"
@@ -694,7 +711,13 @@ export function ConversationClient({
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
-            </div>
+              </div>
+
+              {toast ? (
+                <p className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {toast}
+                </p>
+              ) : null}
 
             <section>
               <h3 className="text-sm font-semibold">模式</h3>
@@ -782,23 +805,33 @@ export function ConversationClient({
               ) : null}
             </section>
 
-            <label className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-surface px-4 py-3">
-              <span>
-                <span className="block text-sm font-semibold">接收此联系人的 AI 代理消息</span>
-                <span className="mt-1 block text-xs leading-5 text-muted">拒绝后，对方在这个会话中只能本人回复。</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={settingsDraft.receiveAiFromContact}
-                onChange={(event) =>
-                  setSettingsDraft((current) => ({
-                    ...current,
-                    receiveAiFromContact: event.target.checked
-                  }))
-                }
-                className="h-5 w-5"
-              />
-            </label>
+              <section className="mt-5">
+                <h3 className="text-sm font-semibold">接收此联系人的 AI 代理消息</h3>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  拒绝后，对方在这个会话中只能本人回复。
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {RECEIVE_AI_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      onClick={() =>
+                        setSettingsDraft((current) => ({
+                          ...current,
+                          receiveAiFromContact: mode.value
+                        }))
+                      }
+                      className={`rounded-2xl px-2 py-3 text-xs font-semibold ${
+                        settingsDraft.receiveAiFromContact === mode.value
+                          ? "bg-ink text-white"
+                          : "bg-surface"
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
 
             <button
               type="button"

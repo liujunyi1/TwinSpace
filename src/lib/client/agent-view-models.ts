@@ -3,6 +3,7 @@ export type AgentModeOverride = "INHERIT" | AgentMode;
 export type AgentDelayMode = "IMMEDIATE" | "SHORT" | "LONG" | "CUSTOM";
 export type AgentDelayOverride = "INHERIT" | AgentDelayMode;
 export type AgentActiveWindowMode = "INHERIT" | "ALWAYS" | "CUSTOM";
+export type AgentReceiveAiMode = "INHERIT" | "ALLOW" | "BLOCK";
 
 export type AgentActiveWindow = {
   weekday: number;
@@ -39,12 +40,13 @@ export type AgentTaskView = {
 
 export type ConversationAgentStateView = {
   effectiveMode: AgentMode;
+  globalDefaultMode: AgentMode;
   modeOverride: AgentModeOverride;
   delayOverride: AgentDelayOverride;
   customDelaySeconds: number;
   activeWindowMode: AgentActiveWindowMode;
   activeWindows: AgentActiveWindow[];
-  receiveAiFromContact: boolean;
+  receiveAiFromContact: AgentReceiveAiMode;
   globalEnabled: boolean;
   avatarActive: boolean;
   workerOnline: boolean;
@@ -72,12 +74,13 @@ export const DEFAULT_GLOBAL_AGENT_SETTINGS: GlobalAgentSettingsView = {
 
 export const DEFAULT_CONVERSATION_AGENT_STATE: ConversationAgentStateView = {
   effectiveMode: "MANUAL",
+  globalDefaultMode: "MANUAL",
   modeOverride: "INHERIT",
   delayOverride: "INHERIT",
   customDelaySeconds: 60,
   activeWindowMode: "INHERIT",
   activeWindows: [],
-  receiveAiFromContact: true,
+  receiveAiFromContact: "INHERIT",
   globalEnabled: false,
   avatarActive: false,
   workerOnline: false,

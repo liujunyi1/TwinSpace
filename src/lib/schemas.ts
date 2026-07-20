@@ -76,21 +76,17 @@ export const agentDelayOverrideSchema = z.enum([
   "CUSTOM"
 ]);
 export const agentActiveWindowModeSchema = z.enum(["INHERIT", "ALWAYS", "CUSTOM"]);
+export const agentReceiveAiModeSchema = z.enum(["INHERIT", "ALLOW", "BLOCK"]);
 
 const timeOfDaySchema = z
   .string()
   .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "时间格式必须为 HH:mm");
 
-export const agentActiveWindowSchema = z
-  .object({
-    weekday: z.number().int().min(0).max(6),
-    start: timeOfDaySchema,
-    end: timeOfDaySchema
-  })
-  .refine((value) => value.start < value.end, {
-    message: "结束时间必须晚于开始时间",
-    path: ["end"]
-  });
+export const agentActiveWindowSchema = z.object({
+  weekday: z.number().int().min(0).max(6),
+  start: timeOfDaySchema,
+  end: timeOfDaySchema
+});
 
 export const globalAgentSettingsSchema = z
   .object({
@@ -126,7 +122,7 @@ export const conversationAgentSettingsSchema = z
     customDelaySeconds: z.number().int().min(1).max(86400),
     activeWindowMode: agentActiveWindowModeSchema,
     activeWindows: z.array(agentActiveWindowSchema).max(56),
-    receiveAiFromContact: z.boolean()
+    receiveAiFromContact: agentReceiveAiModeSchema
   })
   .superRefine((value, context) => {
     if (value.delayOverride === "CUSTOM" && value.customDelaySeconds < 1) {

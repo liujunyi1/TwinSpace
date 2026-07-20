@@ -10,23 +10,34 @@ import {
   modeLabel,
   type ConversationAgentStateView
 } from "@/lib/client/agent-view-models";
+import { getUnreadConversationCounts } from "@/lib/message-unread";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime } from "@/lib/utils";
 
 export default async function MessagesPage() {
   const user = await requireUser();
-  const memberships = await prisma.conversationMember.findMany({
-    where: { userId: user.id },
-    include: {
-      conversation: {
-        include: {
-          messages: { orderBy: { createdAt: "desc" }, take: 1 },
-          members: { include: { user: true } }
+  const [memberships, unreadByConversation] = await Promise.all([
+    prisma.conversationMember.findMany({
+      where: { userId: user.id },
+      include: {
+        conversation: {
+          include: {
+            messages: {
+              where: {
+                status: "SENT",
+                hiddenFor: { none: { userId: user.id } }
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1
+            },
+            members: { include: { user: true } }
+          }
         }
-      }
-    },
-    orderBy: { conversation: { updatedAt: "desc" } }
-  });
+      },
+      orderBy: { conversation: { updatedAt: "desc" } }
+    }),
+    getUnreadConversationCounts(user.id)
+  ]);
   const stateEntries = await Promise.all(
     memberships.map(async ({ conversation }) => {
       if (conversation.type === "AI_CONTACT") {
@@ -76,6 +87,7 @@ export default async function MessagesPage() {
             const last = conversation.messages[0];
             const other = conversation.members.find((member) => member.userId !== user.id)?.user;
             const title = conversation.title || other?.nickname || "会话";
+            const unreadCount = unreadByConversation[conversation.id] || 0;
             const agentState = stateByConversation.get(conversation.id);
             const pendingCount =
               agentState?.tasks.filter((task) =>
@@ -127,9 +139,19 @@ export default async function MessagesPage() {
                           : modeLabel(agentState?.effectiveMode || "MANUAL")}
                       </span>
                     </div>
-                    <span className="shrink-0 text-xs text-muted">
-                      {last ? formatRelativeTime(last.createdAt) : ""}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {unreadCount > 0 ? (
+                        <span
+                          className="h-5 min-w-5 rounded-full bg-red-500 px-1 text-center text-[11px] font-semibold leading-5 text-white"
+                          aria-label={`${unreadCount} 条未读消息`}
+                        >
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
+                      <span className="text-xs text-muted">
+                        {last ? formatRelativeTime(last.createdAt) : ""}
+                      </span>
+                    </div>
                   </div>
                   <p className="mt-1 truncate text-sm text-muted">
                     {lastAgentLabel ? `${lastAgentLabel} · ` : ""}
