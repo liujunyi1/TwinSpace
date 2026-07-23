@@ -395,17 +395,19 @@ export function ConversationClient({
     router.refresh();
   };
 
+  const recipientBlockedAi =
+    !agentState.recipientAllowsAi || agentState.blockReason === "RECIPIENT_BLOCKED_AI";
   const policyProblem =
-    agentConfigurable && agentState.effectiveMode !== "MANUAL"
-      ? !agentState.avatarActive
+    agentConfigurable && (agentState.effectiveMode !== "MANUAL" || recipientBlockedAi)
+      ? recipientBlockedAi
+        ? "对方拒绝 AI 回复，当前会话已切换为手动回复。"
+        : !agentState.avatarActive
         ? "分身尚未激活，当前会话只能手动发送。"
         : !agentState.globalEnabled
           ? "全局代理已暂停，当前会话不会生成或自动发送。"
           : !agentState.workerOnline
             ? "后台 Worker 离线，辅助和托管任务暂时不会执行。"
-            : !agentState.recipientAllowsAi
-              ? "对方拒绝接收 AI 代理内容，当前会话已强制回到手动模式。"
-              : agentState.blockReason
+            : agentState.blockReason
       : null;
   const canGenerateAssist = !policyProblem && agentState.effectiveMode === "ASSIST";
   const activeTasks = agentState.tasks.filter(
@@ -440,7 +442,11 @@ export function ConversationClient({
             {conversationType === "AI_CONTACT"
               ? "独立 AI 联系人"
               : `${modeLabel(agentState.effectiveMode)} · ${
-                  agentState.modeOverride === "INHERIT" ? "继承全局" : "本会话覆盖"
+                  recipientBlockedAi
+                    ? "对方拒绝 AI 回复"
+                    : agentState.modeOverride === "INHERIT"
+                      ? "继承全局"
+                      : "本会话覆盖"
                 }`}
           </p>
         </div>
