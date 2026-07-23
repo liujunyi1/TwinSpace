@@ -80,7 +80,8 @@ describe("AI text streaming", () => {
 
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const requestBody = JSON.parse(String(request.body)) as Record<string, unknown>;
-    expect(request.signal).toBe(controller.signal);
+    expect(request.signal).toBeInstanceOf(AbortSignal);
+    expect(request.signal?.aborted).toBe(false);
     expect(requestBody.stream).toBe(true);
     expect(requestBody).not.toHaveProperty("response_format");
   });

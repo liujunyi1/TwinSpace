@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { registerAction } from "@/app/actions";
-import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { registerAction } from "@/app/actions";
+import { AvatarUploadInput } from "@/components/avatar-upload-input";
+import { getCurrentUser } from "@/lib/auth";
 
 export default async function RegisterPage({
   searchParams
@@ -26,7 +27,7 @@ export default async function RegisterPage({
           </p>
         ) : null}
 
-        <form action={registerAction} className="mt-6 space-y-4" encType="multipart/form-data">
+        <form action={registerAction} className="mt-6 space-y-4">
           <label className="block">
             <span className="mb-2 block text-sm font-medium">用户名</span>
             <input name="username" className="field" autoComplete="username" required />
@@ -59,19 +60,7 @@ export default async function RegisterPage({
               required
             />
           </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">头像链接（可跳过）</span>
-            <input name="avatarUrl" className="field" type="url" placeholder="https://..." />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">本地头像（可跳过）</span>
-            <input
-              name="avatarFile"
-              className="block w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-ink file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-            />
-          </label>
+          <AvatarUploadInput label="头像（可跳过）" previewName="新用户" />
           <label className="flex items-start gap-3 rounded-2xl bg-surface p-4 text-sm text-muted">
             <input name="agreed" type="checkbox" className="mt-1" required />
             <span>我已阅读并同意 TwinSpace 的用户协议和隐私说明。</span>

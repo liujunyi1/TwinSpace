@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { Heart, MessageCircle, Repeat2, Send, Bookmark, Search } from "lucide-react";
+import { Bookmark, Heart, MessageCircle, Repeat2, Search } from "lucide-react";
 import {
-  createCommentAction,
   deleteCommentAction,
   deletePostAction,
   repostAction,
@@ -9,9 +8,11 @@ import {
 } from "@/app/actions";
 import { SocialCommentDeleteButton } from "@/app/(app)/avatar/social/social-comment-delete-button";
 import { Avatar } from "@/components/avatar";
+import { CommentForm } from "@/components/comment-form";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { SocialCommentContent } from "@/components/social-comment-content";
 import { TopBar } from "@/components/top-bar";
 import { requireUser } from "@/lib/auth";
 import { visiblePostWhere } from "@/lib/post-visibility";
@@ -41,7 +42,11 @@ export default async function FeedPage() {
         muted="社区"
         action={
           <div className="flex gap-2">
-            <Link href="/search" className="grid h-10 w-10 place-items-center rounded-full bg-white" aria-label="搜索用户">
+            <Link
+              href="/search"
+              className="grid h-10 w-10 place-items-center rounded-full bg-white"
+              aria-label="搜索用户"
+            >
               <Search className="h-5 w-5" aria-hidden />
             </Link>
             <Link href="/create" className="btn-secondary h-10 px-4">
@@ -56,11 +61,13 @@ export default async function FeedPage() {
         <p className="mt-2 text-lg text-muted">
           动态 <span className="text-3xl font-semibold text-ink">{posts.length}</span> 条
           <span className="mx-2">|</span>
-          点赞 <span className="text-3xl font-semibold text-ink">
+          点赞{" "}
+          <span className="text-3xl font-semibold text-ink">
             {posts.reduce((sum, post) => sum + post.likes.length, 0)}
           </span>
           <span className="mx-2">|</span>
-          评论 <span className="text-3xl font-semibold text-ink">
+          评论{" "}
+          <span className="text-3xl font-semibold text-ink">
             {posts.reduce((sum, post) => sum + post.comments.length, 0)}
           </span>
         </p>
@@ -74,16 +81,18 @@ export default async function FeedPage() {
             const topics = safeJsonParse<string[]>(post.topicsJson, []);
             const images = safeJsonParse<string[]>(post.imageUrlsJson, []);
             const liked = post.likes.some((like) => like.userId === user.id);
+            const profileHref = post.authorId === user.id ? "/profile" : `/users/${post.authorId}`;
+
             return (
               <article id={`post-${post.id}`} key={post.id} className="card scroll-mt-4 overflow-hidden p-5">
                 <div className="flex items-start gap-3">
-                  <Link href={post.authorId === user.id ? "/profile" : `/users/${post.authorId}`} aria-label={`查看 ${post.author.nickname} 的主页`}>
+                  <Link href={profileHref} aria-label={`查看 ${post.author.nickname} 的主页`}>
                     <Avatar name={post.author.nickname} src={post.author.avatarUrl} />
                   </Link>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <Link href={post.authorId === user.id ? "/profile" : `/users/${post.authorId}`} className="font-semibold">
+                        <Link href={profileHref} className="font-semibold">
                           {post.author.nickname}
                         </Link>
                         <p className="text-xs text-muted">
@@ -91,7 +100,9 @@ export default async function FeedPage() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="chip">{post.visibility === "PUBLIC" ? "公开" : "有限可见"}</span>
+                        <span className="chip">
+                          {post.visibility === "PUBLIC" ? "公开" : "有限可见"}
+                        </span>
                         {post.authorId === user.id ? (
                           <form action={deletePostAction}>
                             <input type="hidden" name="postId" value={post.id} />
@@ -141,46 +152,39 @@ export default async function FeedPage() {
                 </div>
 
                 <div className="mt-3 rounded-[24px] bg-surface p-3">
-                  {post.comments.slice(0, 3).map((comment) => (
-                    <div key={comment.id} className="mb-3 flex gap-2 text-sm leading-6">
-                      <Avatar name={comment.author.nickname} src={comment.author.avatarUrl} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p>
-                          <span className="font-semibold">{comment.author.nickname}</span>
-                          {comment.generatedByAvatar ? (
-                            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                              AI 分身代理
-                            </span>
-                          ) : null}
-                          <span>：</span>
-                          {comment.content}
-                        </p>
+                  {post.comments.slice(0, 3).map((comment) => {
+                    const editableAiComment =
+                      comment.authorId === user.id &&
+                      comment.generatedByAvatar &&
+                      !comment.ownerEditedAt;
+
+                    return (
+                      <div key={comment.id} className="mb-3 flex gap-2 text-sm leading-6">
+                        <Avatar name={comment.author.nickname} src={comment.author.avatarUrl} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <SocialCommentContent
+                            commentId={comment.id}
+                            authorName={comment.author.nickname}
+                            content={comment.content}
+                            editable={editableAiComment}
+                            showAiBadge={editableAiComment}
+                          />
+                        </div>
+                        {comment.authorId === user.id ? (
+                          editableAiComment ? (
+                            <SocialCommentDeleteButton commentId={comment.id} />
+                          ) : (
+                            <form action={deleteCommentAction} className="shrink-0">
+                              <input type="hidden" name="commentId" value={comment.id} />
+                              <ConfirmSubmitButton message="确定删除这条评论吗？" />
+                            </form>
+                          )
+                        ) : null}
                       </div>
-                      {comment.authorId === user.id ? (
-                        comment.generatedByAvatar ? (
-                          <SocialCommentDeleteButton commentId={comment.id} />
-                        ) : (
-                          <form action={deleteCommentAction} className="shrink-0">
-                            <input type="hidden" name="commentId" value={comment.id} />
-                            <ConfirmSubmitButton message="确定删除这条评论吗？" />
-                          </form>
-                        )
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                   {post.allowComments ? (
-                    <form action={createCommentAction} className="flex gap-2">
-                      <input type="hidden" name="postId" value={post.id} />
-                      <input
-                        name="content"
-                        className="field h-11 flex-1 rounded-full"
-                        placeholder="写下你的评论"
-                        aria-label="评论内容"
-                      />
-                      <button className="grid h-11 w-11 place-items-center rounded-full bg-ink text-white" aria-label="发布评论">
-                        <Send className="h-4 w-4" aria-hidden />
-                      </button>
-                    </form>
+                    <CommentForm postId={post.id} />
                   ) : (
                     <p className="text-sm text-muted">作者关闭了评论。</p>
                   )}

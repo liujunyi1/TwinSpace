@@ -2,19 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertTriangle,
-  Check,
-  Clock3,
-  Eye,
-  RefreshCw,
-  ShieldCheck
-} from "lucide-react";
+import { AlertTriangle, Check, Eye, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   enqueueSocialRunNowAction,
   updateSocialPolicyAction
 } from "@/app/social-agent-actions";
-import { AgentScheduleEditor } from "@/components/agent-schedule-editor";
 
 type SocialMode = "OFF" | "SUGGEST" | "AUTO";
 type SocialScope = "MUTUAL" | "FOLLOWING" | "PUBLIC";
@@ -80,7 +72,7 @@ export function SocialAgentSettingsClient({
         mode: settings.mode,
         scope: settings.scope,
         timezone: settings.timezone,
-        activeWindows: settings.activeWindows,
+        activeWindows: [],
         dailyBatchMin: Number(settings.dailyBatchMin),
         dailyBatchMax: Number(settings.dailyBatchMax),
         dailyCommentLimit: Number(settings.dailyCommentLimit),
@@ -136,7 +128,7 @@ export function SocialAgentSettingsClient({
         <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold">启用动态代理</h2>
-            <p className="mt-1 text-sm leading-6 text-muted">这是独立开关，不受聊天代理的全局暂停影响。</p>
+            <p className="mt-1 text-sm leading-6 text-muted">动态代理默认全天运行，不再按每日时段限制。</p>
           </div>
           <input
             type="checkbox"
@@ -209,42 +201,6 @@ export function SocialAgentSettingsClient({
             );
           })}
         </div>
-      </section>
-
-      <section className="card p-5">
-        <div className="flex items-center gap-2">
-          <Clock3 className="h-5 w-5" aria-hidden />
-          <h2 className="text-lg font-semibold">浏览时段</h2>
-        </div>
-        <label className="mt-4 block">
-          <span className="mb-2 block text-sm font-medium">IANA 时区</span>
-          <input
-            value={settings.timezone}
-            onChange={(event) =>
-              setSettings((current) => ({ ...current, timezone: event.target.value }))
-            }
-            className="field"
-            list="social-iana-timezones"
-            placeholder="Asia/Shanghai"
-          />
-          <datalist id="social-iana-timezones">
-            <option value="Asia/Shanghai" />
-            <option value="Asia/Hong_Kong" />
-            <option value="Asia/Tokyo" />
-            <option value="Europe/London" />
-            <option value="America/New_York" />
-            <option value="UTC" />
-          </datalist>
-        </label>
-        <div className="mt-4">
-          <AgentScheduleEditor
-            value={settings.activeWindows}
-            onChange={(activeWindows) =>
-              setSettings((current) => ({ ...current, activeWindows }))
-            }
-          />
-        </div>
-        <p className="mt-3 text-xs leading-5 text-muted">不添加时段时按全天可运行处理。</p>
       </section>
 
       <section className="card p-5">
