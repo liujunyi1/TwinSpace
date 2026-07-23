@@ -368,7 +368,7 @@ export function AvatarActivityClient({
                       </div>
                       <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted">
                         {redacted
-                          ? "内容已删除或脱敏，系统不再保留正文。"
+                          ? "内容已删除"
                           : activity.draft || activity.reason || "暂无正文预览"}
                       </p>
                       {activity.error ? (
