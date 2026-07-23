@@ -4,6 +4,7 @@ import { SocialCommentDeleteButton } from "@/app/(app)/avatar/social/social-comm
 import { Avatar } from "@/components/avatar";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
+import { SocialCommentContent } from "@/components/social-comment-content";
 import { requireUser } from "@/lib/auth";
 import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
@@ -28,43 +29,45 @@ export default async function MyCommentsPage() {
       </header>
       {comments.length ? (
         <div className="space-y-4">
-          {comments.map((comment) => (
-            <article key={comment.id} className="card p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {comment.generatedByAvatar ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                        AI 分身代理
-                      </span>
-                    ) : null}
-                    <p className="text-sm leading-6">{comment.content}</p>
+          {comments.map((comment) => {
+            const editableAiComment = comment.generatedByAvatar && !comment.ownerEditedAt;
+
+            return (
+              <article key={comment.id} className="card p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <SocialCommentContent
+                      commentId={comment.id}
+                      content={comment.content}
+                      editable={editableAiComment}
+                      showAiBadge={editableAiComment}
+                    />
+                    <p className="mt-2 text-xs text-muted">{formatRelativeTime(comment.createdAt)}</p>
                   </div>
-                  <p className="mt-2 text-xs text-muted">{formatRelativeTime(comment.createdAt)}</p>
+                  {editableAiComment ? (
+                    <SocialCommentDeleteButton commentId={comment.id} />
+                  ) : (
+                    <form action={deleteCommentAction} className="shrink-0">
+                      <input type="hidden" name="commentId" value={comment.id} />
+                      <ConfirmSubmitButton message="确定删除这条评论吗？" />
+                    </form>
+                  )}
                 </div>
-                {comment.generatedByAvatar ? (
-                  <SocialCommentDeleteButton commentId={comment.id} />
-                ) : (
-                  <form action={deleteCommentAction} className="shrink-0">
-                    <input type="hidden" name="commentId" value={comment.id} />
-                    <ConfirmSubmitButton message="确定删除这条评论吗？" />
-                  </form>
-                )}
-              </div>
-              <div className="mt-4 rounded-[24px] bg-surface p-4">
-                <div className="mb-2 flex items-center gap-2">
-                  <Link href={comment.post.authorId === user.id ? "/profile" : `/users/${comment.post.authorId}`}>
-                    <Avatar name={comment.post.author.nickname} src={comment.post.author.avatarUrl} size="sm" />
-                  </Link>
-                  <div>
-                    <p className="text-sm font-semibold">{comment.post.author.nickname}</p>
-                    <p className="text-xs text-muted">原帖</p>
+                <div className="mt-4 rounded-[24px] bg-surface p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Link href={comment.post.authorId === user.id ? "/profile" : `/users/${comment.post.authorId}`}>
+                      <Avatar name={comment.post.author.nickname} src={comment.post.author.avatarUrl} size="sm" />
+                    </Link>
+                    <div>
+                      <p className="text-sm font-semibold">{comment.post.author.nickname}</p>
+                      <p className="text-xs text-muted">原帖</p>
+                    </div>
                   </div>
+                  <p className="line-clamp-3 text-sm leading-6 text-muted">{comment.post.content}</p>
                 </div>
-                <p className="line-clamp-3 text-sm leading-6 text-muted">{comment.post.content}</p>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       ) : (
         <EmptyState title="还没有评论记录" />

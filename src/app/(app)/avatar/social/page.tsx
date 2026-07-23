@@ -40,11 +40,7 @@ export default async function AvatarSocialPage() {
       <SocialAgentSettingsClient
         initialSettings={{
           ...settings,
-          activeWindows: settings.activeWindows.map((window) => ({
-            weekday: window.day,
-            start: window.start,
-            end: window.end
-          })),
+          activeWindows: [],
           avatarActive: avatarProfile?.status === "ACTIVE",
           workerOnline: heartbeatIsOnline(heartbeat)
         }}

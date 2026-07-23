@@ -672,6 +672,55 @@ export async function deleteSocialComment(
   });
 }
 
+export async function editSocialComment(
+  userId: string,
+  commentId: string,
+  content: string
+): Promise<SocialResult> {
+  const normalizedContent = content.trim();
+  if (!normalizedContent) return { ok: false, error: "评论不能为空" };
+  if (normalizedContent.length > 500) return { ok: false, error: "评论不能超过 500 字" };
+
+  return prisma.$transaction(async (tx) => {
+    const comment = await tx.comment.findFirst({
+      where: {
+        id: commentId,
+        authorId: userId,
+        generatedByAvatar: true,
+        ownerEditedAt: null
+      },
+      select: { id: true, socialAgentTaskId: true }
+    });
+    if (!comment) return { ok: false, error: "只能修改本人尚未编辑过的分身评论" };
+
+    const now = new Date();
+    await tx.comment.update({
+      where: { id: comment.id },
+      data: {
+        content: normalizedContent,
+        ownerEditedAt: now
+      }
+    });
+
+    if (comment.socialAgentTaskId) {
+      await tx.socialAgentTask.updateMany({
+        where: { id: comment.socialAgentTaskId, ownerId: userId },
+        data: {
+          draftContent: null,
+          decisionReason: "OWNER_EDITED",
+          redactedAt: now
+        }
+      });
+    }
+
+    return {
+      ok: true,
+      taskId: comment.socialAgentTaskId || undefined,
+      commentId: comment.id
+    };
+  });
+}
+
 export async function redactExpiredSocialContent(now = new Date()) {
   return prisma.socialAgentTask.updateMany({
     where: {

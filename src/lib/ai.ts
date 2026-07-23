@@ -31,6 +31,7 @@ export type ChatMessage = {
 export type AiCapability = "text" | "image" | "stream";
 
 const supportedAiCapabilities = new Set<AiCapability>(["text", "image", "stream"]);
+const AI_REQUEST_TIMEOUT_MS = 12_000;
 
 export function getAiCapabilities(): AiCapability[] {
   const configured = (process.env.AI_CAPABILITIES || "text")
@@ -53,6 +54,26 @@ function aiConfig() {
   return getAiProviderConfig();
 }
 
+function timeoutSignal(parent?: AbortSignal) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+
+  const clear = () => clearTimeout(timeout);
+  const abortFromParent = () => controller.abort();
+  if (parent) {
+    if (parent.aborted) controller.abort();
+    else parent.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    clear: () => {
+      clear();
+      parent?.removeEventListener("abort", abortFromParent);
+    }
+  };
+}
+
 async function callStructured<T>(
   schema: z.ZodSchema<T>,
   system: string,
@@ -61,6 +82,7 @@ async function callStructured<T>(
   const config = aiConfig();
   if (config.provider === "mock" || !config.apiKey || !config.baseUrl) return null;
 
+  const timeout = timeoutSignal();
   try {
     const response = await fetch(resolveChatCompletionsUrl(config.baseUrl), {
       method: "POST",
@@ -76,7 +98,8 @@ async function callStructured<T>(
           { role: "system", content: system },
           { role: "user", content: user }
         ]
-      })
+      }),
+      signal: timeout.signal
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
@@ -87,6 +110,8 @@ async function callStructured<T>(
     return schema.parse(JSON.parse(content));
   } catch {
     return null;
+  } finally {
+    timeout.clear();
   }
 }
 
@@ -166,6 +191,7 @@ async function createTextStream(
   }
 
   let response: Response;
+  const timeout = timeoutSignal(signal);
   try {
     response = await fetch(resolveChatCompletionsUrl(config.baseUrl), {
       method: "POST",
@@ -182,11 +208,13 @@ async function createTextStream(
           { role: "user", content: request.user }
         ]
       }),
-      signal
+      signal: timeout.signal
     });
   } catch (error) {
     if (signal?.aborted) throw error;
     return { mode: "complete", text: await request.fallback() };
+  } finally {
+    timeout.clear();
   }
 
   if (!response.ok) {
@@ -234,6 +262,11 @@ export type GenerateAvatarReplyInput = {
   messages: ChatMessage[];
 };
 
+function avatarReplyFallback(context: GenerateAvatarReplyInput) {
+  const lastUserMessage = [...context.messages].reverse().find((message) => message.role === "user")?.content || "";
+  return `我会按你的风格先接住这个问题：${lastUserMessage.slice(0, 48)}。从你的画像看，先把感受和可执行的小步骤分开会更稳。`;
+}
+
 export async function generateAvatarReply(context: GenerateAvatarReplyInput) {
   const lastUserMessage = [...context.messages].reverse().find((message) => message.role === "user")?.content || "";
   const ai = await callStructured(
@@ -256,7 +289,7 @@ export function createAvatarReplyStream(
       system:
         "你是用户的数字分身聊天助手。不能假装自己是真人，不编造事实，不输出心理诊断或危险建议。只输出回复正文，不要输出 JSON 或解释。",
       user: JSON.stringify(input),
-      fallback: () => generateAvatarReply(input)
+      fallback: async () => avatarReplyFallback(input)
     },
     signal
   );

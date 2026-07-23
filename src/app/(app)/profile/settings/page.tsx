@@ -1,4 +1,5 @@
 import { updateProfileAction } from "@/app/actions";
+import { AvatarUploadInput } from "@/components/avatar-upload-input";
 import { requireUser } from "@/lib/auth";
 
 export default async function SettingsPage({
@@ -19,24 +20,16 @@ export default async function SettingsPage({
           {searchParams.error}
         </p>
       ) : null}
-      <form action={updateProfileAction} className="card space-y-4 p-5" encType="multipart/form-data">
+      <form action={updateProfileAction} className="card space-y-4 p-5">
         <label className="block">
           <span className="mb-2 block text-sm font-medium">昵称</span>
           <input name="nickname" className="field" defaultValue={user.nickname} required />
         </label>
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">头像链接</span>
-          <input name="avatarUrl" className="field" defaultValue={user.avatarUrl || ""} />
-        </label>
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">上传本地头像</span>
-          <input
-            name="avatarFile"
-            className="block w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-ink file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-          />
-        </label>
+        <AvatarUploadInput
+          label="头像"
+          previewName={user.nickname}
+          currentSrc={user.avatarUrl}
+        />
         <label className="block">
           <span className="mb-2 block text-sm font-medium">简介</span>
           <textarea name="bio" className="textarea min-h-32" defaultValue={user.bio} />

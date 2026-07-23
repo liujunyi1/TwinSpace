@@ -6,6 +6,7 @@ import {
   approveSocialDraft,
   cancelSocialTask,
   deleteSocialComment,
+  editSocialComment,
   enqueueSocialRunNow,
   updateSocialPolicy
 } from "@/lib/agent/social-agent";
@@ -53,6 +54,10 @@ const approveDraftSchema = z.object({
   taskId: entityIdSchema,
   content: z.string().trim().min(1, "评论不能为空").max(500, "评论不能超过 500 字")
 });
+const editCommentSchema = z.object({
+  commentId: entityIdSchema,
+  content: z.string().trim().min(1, "评论不能为空").max(500, "评论不能超过 500 字")
+});
 const noInputSchema = z.undefined();
 
 function firstValidationError(error: z.ZodError) {
@@ -82,11 +87,7 @@ export async function updateSocialPolicyAction(input: unknown) {
   try {
     const result = await updateSocialPolicy(user.id, {
       ...parsed.data,
-      activeWindows: parsed.data.activeWindows.map((window) => ({
-        day: window.weekday,
-        start: window.start,
-        end: window.end
-      }))
+      activeWindows: []
     });
     if (!result.ok) {
       return { ok: false as const, error: result.error || "保存失败" };
@@ -166,6 +167,25 @@ export async function deleteSocialCommentAction(input: unknown) {
     const result = await deleteSocialComment(user.id, parsed.data);
     if (!result.ok) {
       return { ok: false as const, error: result.error || "删除失败" };
+    }
+    revalidateSocialPages();
+    return { ok: true as const, taskId: result.taskId, commentId: result.commentId };
+  } catch (error) {
+    return { ok: false as const, error: errorMessage(error) };
+  }
+}
+
+export async function editSocialCommentAction(input: unknown) {
+  const user = await requireUser();
+  const parsed = editCommentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: firstValidationError(parsed.error) };
+  }
+
+  try {
+    const result = await editSocialComment(user.id, parsed.data.commentId, parsed.data.content);
+    if (!result.ok) {
+      return { ok: false as const, error: result.error || "修改失败" };
     }
     revalidateSocialPages();
     return { ok: true as const, taskId: result.taskId, commentId: result.commentId };

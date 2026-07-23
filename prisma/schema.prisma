@@ -241,6 +241,7 @@ model Comment {
   parentId          String?
   content           String
   generatedByAvatar Boolean  @default(false)
+  ownerEditedAt     DateTime?
   socialAgentTaskId String?  @unique
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
