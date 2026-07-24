@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { editSocialCommentAction } from "@/app/social-agent-actions";
@@ -8,12 +9,14 @@ import { editSocialCommentAction } from "@/app/social-agent-actions";
 export function SocialCommentContent({
   commentId,
   authorName,
+  authorHref,
   content,
   editable,
   showAiBadge
 }: {
   commentId: string;
   authorName?: string;
+  authorHref?: string;
   content: string;
   editable: boolean;
   showAiBadge: boolean;
@@ -83,7 +86,15 @@ export function SocialCommentContent({
 
   const body = (
     <span>
-      {authorName ? <span className="font-semibold">{authorName}</span> : null}
+      {authorName ? (
+        authorHref && !editable ? (
+          <Link href={authorHref} className="font-semibold">
+            {authorName}
+          </Link>
+        ) : (
+          <span className="font-semibold">{authorName}</span>
+        )
+      ) : null}
       {showAiBadge ? (
         <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
           AI 分身代理

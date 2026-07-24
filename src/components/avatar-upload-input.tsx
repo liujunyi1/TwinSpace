@@ -29,7 +29,9 @@ export function AvatarUploadInput({
     <label className="block">
       <span className="mb-2 block text-sm font-medium">{label}</span>
       <div className="flex items-center gap-4 rounded-2xl border border-line bg-white p-3">
-        <Avatar name={previewName} src={previewSrc} size="lg" />
+        <span data-testid={`${name}-preview`}>
+          <Avatar name={previewName} src={previewSrc} size="lg" />
+        </span>
         <input
           name={name}
           className="min-w-0 flex-1 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-ink file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"

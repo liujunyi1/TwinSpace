@@ -55,7 +55,8 @@ const task = {
     id: "post",
     content: "动态正文",
     imageUrlsJson: "[]",
-    author: { nickname: "Author" }
+    author: { nickname: "Author" },
+    comments: []
   }
 };
 

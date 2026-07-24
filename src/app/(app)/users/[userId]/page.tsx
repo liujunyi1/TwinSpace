@@ -98,10 +98,14 @@ export default async function UserProfilePage({
         {user.posts.length ? (
           <div className="space-y-3">
             {user.posts.map((post) => (
-              <article key={post.id} className="soft-panel p-4">
+              <Link
+                key={post.id}
+                href={`/feed#post-${post.id}`}
+                className="soft-panel block p-4 transition hover:bg-white"
+              >
                 <p className="text-sm leading-6">{post.content}</p>
                 <p className="mt-2 text-xs text-muted">{formatRelativeTime(post.createdAt)}</p>
-              </article>
+              </Link>
             ))}
           </div>
         ) : (

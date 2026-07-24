@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { simulatedPersonas, type SimulatedPersona } from "../src/lib/simulation/personas";
 
 const prisma = new PrismaClient();
 
@@ -9,6 +10,303 @@ function avatar(seed: string) {
 
 function directKey(firstUserId: string, secondUserId: string) {
   return `dm:${[firstUserId, secondUserId].sort().join(":")}`;
+}
+
+function simulatedComment(persona: SimulatedPersona, postContent: string) {
+  const templates = [
+    `这条很有共鸣，尤其是你写到的这个瞬间。${persona.commentStyle}`,
+    `看到这里会觉得很真实，不是空泛的分享。${persona.commentStyle}`,
+    `这个细节我喜欢，能感觉到你是真的在经历它。${persona.commentStyle}`,
+    `读完会想接着听你展开说说。${persona.commentStyle}`
+  ];
+  const index = (persona.key.length + postContent.length) % templates.length;
+  return templates[index];
+}
+
+async function seedSimulatedUsers(input: {
+  passwordHash: string;
+  anchorUserIds: string[];
+}) {
+  const users = [];
+  for (const persona of simulatedPersonas) {
+    const user = await prisma.user.create({
+      data: {
+        username: persona.username,
+        email: persona.email,
+        nickname: persona.nickname,
+        passwordHash: input.passwordHash,
+        avatarUrl: avatar(persona.avatarSeed),
+        bio: persona.bio
+      }
+    });
+    users.push({ user, persona });
+
+    await prisma.personalityProfile.create({
+      data: {
+        userId: user.id,
+        summary: persona.summary,
+        traitsJson: JSON.stringify({
+          labels: persona.traits,
+          occupation: persona.occupation,
+          city: persona.city,
+          interestTopics: persona.interests
+        }),
+        communicationStyle: persona.communicationStyle,
+        socialStyle: persona.socialStyle,
+        emotionalStyle: persona.emotionalStyle,
+        replyLength: persona.replyLength,
+        emojiPreference: persona.emojiPreference,
+        aiAutonomyLevel: persona.aiAutonomyLevel
+      }
+    });
+
+    await prisma.preference.createMany({
+      data: [
+        ...persona.interests.map((value) => ({ userId: user.id, category: "兴趣话题", value })),
+        ...persona.traits.map((value) => ({ userId: user.id, category: "人格标签", value })),
+        { userId: user.id, category: "评论风格", value: persona.commentStyle },
+        { userId: user.id, category: "私信风格", value: persona.dmStyle }
+      ]
+    });
+
+    await prisma.memory.createMany({
+      data: persona.memories.map((memory) => ({
+        userId: user.id,
+        type: memory.type,
+        content: memory.content,
+        sourceType: "SIMULATION_FIXTURE",
+        sourceId: persona.key,
+        confidence: memory.confidence ?? 0.9,
+        status: "CONFIRMED",
+        confirmedAt: new Date()
+      }))
+    });
+
+    const knowledgeRevision = 1;
+    await prisma.avatarProfile.create({
+      data: {
+        userId: user.id,
+        privateName: `${persona.nickname}的分身`,
+        privateAvatarUrl: avatar(`${persona.avatarSeed}-avatar`),
+        status: "ACTIVE",
+        knowledgeRevision,
+        policyRevision: 1,
+        calibratedAt: new Date()
+      }
+    });
+
+    const source = await prisma.avatarKnowledgeSource.create({
+      data: {
+        userId: user.id,
+        kind: "SIMULATION_PERSONA",
+        sourceKey: persona.key,
+        label: `${persona.nickname}模拟用户画像`,
+        content: JSON.stringify({
+          summary: persona.summary,
+          communicationStyle: persona.communicationStyle,
+          socialStyle: persona.socialStyle,
+          emotionalStyle: persona.emotionalStyle,
+          commentStyle: persona.commentStyle,
+          dmStyle: persona.dmStyle
+        })
+      }
+    });
+
+    for (const item of persona.knowledge) {
+      const knowledge = await prisma.avatarKnowledgePage.create({
+        data: {
+          userId: user.id,
+          category: item.category,
+          title: item.title,
+          content: item.content,
+          confidence: item.confidence ?? 0.9,
+          confirmationStatus: "CONFIRMED",
+          revision: knowledgeRevision
+        }
+      });
+      await prisma.avatarKnowledgeCitation.create({
+        data: { knowledgeId: knowledge.id, sourceId: source.id }
+      });
+    }
+
+    await prisma.avatarAgentSetting.create({
+      data: {
+        userId: user.id,
+        enabled: true,
+        defaultMode: "PROXY",
+        assistAutoDraft: false,
+        delayMode: "SHORT",
+        customDelaySeconds: 20,
+        sendBufferSeconds: 5,
+        timezone: "Asia/Shanghai",
+        activeWindowsJson: "[]",
+        receiveAi: true,
+        policyRevision: 1
+      }
+    });
+
+    await prisma.socialAgentPolicy.create({
+      data: {
+        userId: user.id,
+        enabled: true,
+        mode: "AUTO",
+        scope: "PUBLIC",
+        timezone: "Asia/Shanghai",
+        activeWindowsJson: "[]",
+        dailyBatchMin: 4,
+        dailyBatchMax: 8,
+        dailyCommentLimit: 8,
+        authorCooldownHours: 2,
+        policyRevision: 1
+      }
+    });
+
+    await prisma.avatarCalibrationCase.createMany({
+      data: [
+        {
+          userId: user.id,
+          kind: "DAILY_CHAT",
+          scenario: "朋友问你今天过得怎么样。",
+          generatedResponse: `今天还算稳定，主要在处理${persona.interests[0]}相关的事情。${persona.dmStyle}`,
+          editedResponse: `今天还算稳定，主要在处理${persona.interests[0]}相关的事情。${persona.dmStyle}`,
+          status: "APPROVED",
+          knowledgeRevision
+        },
+        {
+          userId: user.id,
+          kind: "COMFORT",
+          scenario: "朋友说最近有点累。",
+          generatedResponse: `听起来这段时间消耗不小。${persona.dmStyle}`,
+          editedResponse: `听起来这段时间消耗不小。${persona.dmStyle}`,
+          status: "APPROVED",
+          knowledgeRevision
+        },
+        {
+          userId: user.id,
+          kind: "REFUSAL",
+          scenario: "朋友提出一个不方便答应的请求。",
+          generatedResponse: "这件事我可能没法直接答应，但可以一起看看有没有别的办法。",
+          editedResponse: "这件事我可能没法直接答应，但可以一起看看有没有别的办法。",
+          status: "APPROVED",
+          knowledgeRevision
+        },
+        {
+          userId: user.id,
+          kind: "FEED_COMMENT",
+          scenario: "朋友发布了一条公开动态。",
+          generatedResponse: `这条动态挺真实的。${persona.commentStyle}`,
+          editedResponse: `这条动态挺真实的。${persona.commentStyle}`,
+          status: "APPROVED",
+          knowledgeRevision
+        }
+      ]
+    });
+  }
+
+  const followRows = [];
+  for (let index = 0; index < users.length; index += 1) {
+    const current = users[index].user;
+    const next = users[(index + 1) % users.length].user;
+    const secondNext = users[(index + 2) % users.length].user;
+    followRows.push({ followerId: current.id, followingId: next.id });
+    followRows.push({ followerId: next.id, followingId: current.id });
+    followRows.push({ followerId: current.id, followingId: secondNext.id });
+    for (const anchorUserId of input.anchorUserIds.slice(0, 2)) {
+      followRows.push({ followerId: current.id, followingId: anchorUserId });
+      followRows.push({ followerId: anchorUserId, followingId: current.id });
+    }
+  }
+  await prisma.follow.createMany({ data: followRows });
+
+  const createdPosts = [];
+  for (const profile of users) {
+    for (const post of profile.persona.posts) {
+      const created = await prisma.post.create({
+        data: {
+          authorId: profile.user.id,
+          content: post.content,
+          topicsJson: JSON.stringify(post.topics),
+          location: post.location || profile.persona.city,
+          visibility: "PUBLIC",
+          allowComments: true
+        }
+      });
+      createdPosts.push(created);
+    }
+  }
+
+  for (let index = 0; index < createdPosts.length; index += 1) {
+    const post = createdPosts[index];
+    const authors = [
+      users[(index + 3) % users.length],
+      users[(index + 7) % users.length]
+    ].filter((profile) => profile.user.id !== post.authorId);
+    await prisma.comment.createMany({
+      data: authors.map(({ user, persona }) => ({
+        postId: post.id,
+        authorId: user.id,
+        content: simulatedComment(persona, post.content),
+        generatedByAvatar: true
+      }))
+    });
+  }
+
+  for (let index = 0; index < Math.min(5, users.length); index += 1) {
+    const simulated = users[index];
+    const anchorUserId = input.anchorUserIds[index % input.anchorUserIds.length];
+    const conversation = await prisma.conversation.create({
+      data: {
+        title: `${simulated.persona.nickname} 与真实用户`,
+        type: "HUMAN",
+        aiMode: "PROXY",
+        directKey: directKey(anchorUserId, simulated.user.id),
+        members: {
+          create: [
+            { userId: anchorUserId, role: "OWNER" },
+            { userId: simulated.user.id, role: "MEMBER" }
+          ]
+        }
+      }
+    });
+    await prisma.conversationAgentSetting.createMany({
+      data: [
+        {
+          conversationId: conversation.id,
+          userId: anchorUserId,
+          modeOverride: "MANUAL",
+          activeWindowMode: "INHERIT",
+          receiveAiFromContact: "ALLOW",
+          revision: 1
+        },
+        {
+          conversationId: conversation.id,
+          userId: simulated.user.id,
+          modeOverride: "PROXY",
+          activeWindowMode: "INHERIT",
+          receiveAiFromContact: "ALLOW",
+          revision: 1
+        }
+      ]
+    });
+    await prisma.message.createMany({
+      data: [
+        {
+          conversationId: conversation.id,
+          senderId: anchorUserId,
+          content: "你好，想和你聊聊最近的状态。",
+          senderMode: "HUMAN"
+        },
+        {
+          conversationId: conversation.id,
+          senderId: simulated.user.id,
+          content: `我在。${simulated.persona.dmStyle}`,
+          senderMode: "AI_PROXY"
+        }
+      ]
+    });
+  }
+
+  return users.map((profile) => profile.user);
 }
 
 async function main() {
@@ -93,6 +391,11 @@ async function main() {
       { followerId: stage2Users[0].id, followingId: stage2Users[1].id },
       { followerId: stage2Users[1].id, followingId: stage2Users[0].id }
     ]
+  });
+
+  const simulatedUsers = await seedSimulatedUsers({
+    passwordHash,
+    anchorUserIds: [demo.id, ...friends.map((friend) => friend.id), ...stage2Users.map((user) => user.id)]
   });
 
   await prisma.personalityProfile.create({
@@ -455,6 +758,7 @@ async function main() {
 
   console.log("Seed complete. Demo account: demo / TwinSpace123!");
   console.log("Stage 2 accounts: stage2_alice / TwinSpace123!, stage2_bob / TwinSpace123!");
+  console.log(`Simulation accounts: ${simulatedUsers.length} users / TwinSpace123!`);
 }
 
 main()

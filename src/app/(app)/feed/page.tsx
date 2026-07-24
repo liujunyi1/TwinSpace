@@ -15,6 +15,7 @@ import { ImageLightbox } from "@/components/image-lightbox";
 import { SocialCommentContent } from "@/components/social-comment-content";
 import { TopBar } from "@/components/top-bar";
 import { requireUser } from "@/lib/auth";
+import { socialCommentPresentation } from "@/lib/client/social-comment-presentation";
 import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime, safeJsonParse } from "@/lib/utils";
@@ -86,7 +87,11 @@ export default async function FeedPage() {
             return (
               <article id={`post-${post.id}`} key={post.id} className="card scroll-mt-4 overflow-hidden p-5">
                 <div className="flex items-start gap-3">
-                  <Link href={profileHref} aria-label={`查看 ${post.author.nickname} 的主页`}>
+                  <Link
+                    href={profileHref}
+                    aria-label={`查看 ${post.author.nickname} 的主页`}
+                    className="shrink-0"
+                  >
                     <Avatar name={post.author.nickname} src={post.author.avatarUrl} />
                   </Link>
                   <div className="min-w-0 flex-1">
@@ -152,26 +157,32 @@ export default async function FeedPage() {
                 </div>
 
                 <div className="mt-3 rounded-[24px] bg-surface p-3">
-                  {post.comments.slice(0, 3).map((comment) => {
-                    const editableAiComment =
-                      comment.authorId === user.id &&
-                      comment.generatedByAvatar &&
-                      !comment.ownerEditedAt;
+                  {post.comments.map((comment) => {
+                    const commentUi = socialCommentPresentation(comment, user.id);
+                    const commentAuthorHref =
+                      comment.authorId === user.id ? "/profile" : `/users/${comment.authorId}`;
 
                     return (
                       <div key={comment.id} className="mb-3 flex gap-2 text-sm leading-6">
-                        <Avatar name={comment.author.nickname} src={comment.author.avatarUrl} size="sm" />
+                        <Link
+                          href={commentAuthorHref}
+                          aria-label={`查看 ${comment.author.nickname} 的主页`}
+                          className="shrink-0"
+                        >
+                          <Avatar name={comment.author.nickname} src={comment.author.avatarUrl} size="sm" />
+                        </Link>
                         <div className="min-w-0 flex-1">
                           <SocialCommentContent
                             commentId={comment.id}
                             authorName={comment.author.nickname}
+                            authorHref={commentAuthorHref}
                             content={comment.content}
-                            editable={editableAiComment}
-                            showAiBadge={editableAiComment}
+                            editable={commentUi.editable}
+                            showAiBadge={commentUi.showAiBadge}
                           />
                         </div>
-                        {comment.authorId === user.id ? (
-                          editableAiComment ? (
+                        {commentUi.canDelete ? (
+                          commentUi.useSocialAgentDelete ? (
                             <SocialCommentDeleteButton commentId={comment.id} />
                           ) : (
                             <form action={deleteCommentAction} className="shrink-0">

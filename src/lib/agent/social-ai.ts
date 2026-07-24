@@ -26,7 +26,18 @@ const socialCommentInputSchema = z.object({
     id: z.string().trim().min(1).max(200),
     content: z.string().trim().max(10_000),
     imageUrls: z.array(z.string().trim().min(1).max(2000)).max(12),
-    authorName: z.string().trim().min(1).max(120)
+    authorName: z.string().trim().min(1).max(120),
+    existingComments: z
+      .array(
+        z.object({
+          authorName: z.string().trim().min(1).max(120),
+          content: z.string().trim().min(1).max(1000),
+          generatedByAvatar: z.boolean().optional()
+        })
+      )
+      .max(80)
+      .optional()
+      .default([])
   }),
   relationshipSummary: z.string().trim().max(1200).optional()
 });
@@ -47,7 +58,8 @@ const socialDecisionSchema = z
     }
   });
 
-export type SocialCommentInput = z.infer<typeof socialCommentInputSchema>;
+export type SocialCommentInput = z.input<typeof socialCommentInputSchema>;
+type ParsedSocialCommentInput = z.infer<typeof socialCommentInputSchema>;
 
 export type SocialCommentResult = {
   decision: "COMMENT" | "SKIP";
@@ -159,21 +171,28 @@ function systemPrompt() {
   ].join("\n");
 }
 
-function modelPayload(input: SocialCommentInput) {
+function modelPayload(input: ParsedSocialCommentInput) {
   return {
     owner: input.owner,
     post: {
       id: input.post.id,
       content: input.post.content,
       authorName: input.post.authorName,
-      imageCount: input.post.imageUrls.length
+      imageCount: input.post.imageUrls.length,
+      existingComments: input.post.existingComments.map((comment) => ({
+        authorName: comment.authorName,
+        content: comment.content,
+        generatedByAvatar: Boolean(comment.generatedByAvatar)
+      }))
     },
+    commentInstruction:
+      "Read existingComments carefully. Do not repeat, paraphrase, or closely imitate any existing comment. Add a new angle tied to the post, images, and owner persona.",
     relationshipSummary: input.relationshipSummary
   };
 }
 
 async function requestDecision(
-  input: SocialCommentInput,
+  input: ParsedSocialCommentInput,
   userContent: OpenAiUserContent,
   model: string,
   signal?: AbortSignal
@@ -227,7 +246,7 @@ function resultFromDecision(
   };
 }
 
-function deterministicDecision(input: SocialCommentInput): SocialCommentResult {
+function deterministicDecision(input: ParsedSocialCommentInput): SocialCommentResult {
   if (!input.post.content) {
     return {
       decision: "SKIP",

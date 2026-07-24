@@ -110,7 +110,9 @@ export default async function ProfilePage() {
           <div className="space-y-3">
             {posts.map((post) => (
               <article key={post.id} className="soft-panel p-4">
-                <p className="text-sm leading-6">{post.content}</p>
+                <Link href={`/feed#post-${post.id}`} className="block text-sm leading-6">
+                  {post.content}
+                </Link>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <p className="text-xs text-muted">{formatRelativeTime(post.createdAt)}</p>
                   <form action={deletePostAction}>

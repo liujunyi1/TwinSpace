@@ -8,13 +8,19 @@
     "start": "next start",
     "worker": "tsx worker/index.ts",
     "worker:once": "tsx worker/index.ts --once",
+    "simulation:worker": "tsx worker/simulation.ts",
+    "simulation:once": "tsx worker/simulation.ts --once",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:simulation": "tsx prisma/seed-simulation.ts"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
@@ -28,6 +34,7 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/bcryptjs": "2.4.6",
     "@types/node": "20.14.10",
     "@types/react": "18.3.3",
@@ -35,6 +42,7 @@
     "autoprefixer": "10.4.19",
     "eslint": "8.57.0",
     "eslint-config-next": "14.2.5",
+    "jsdom": "^29.1.1",
     "postcss": "8.4.39",
     "prisma": "5.22.0",
     "tailwindcss": "3.4.4",

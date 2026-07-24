@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 

@@ -2,10 +2,16 @@ node_modules
 .next
 out
 coverage
+test-results
+playwright-report
 .env
 .env*.local
 prisma/dev.db
 prisma/dev.db-journal
+prisma/e2e.db
+prisma/e2e.db-journal
+prisma/e2e.db-shm
+prisma/e2e.db-wal
 public/uploads/*
 !public/uploads/.gitkeep
 *.tsbuildinfo
