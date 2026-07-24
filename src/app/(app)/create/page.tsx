@@ -23,7 +23,7 @@ export default function CreatePage({
         </p>
       ) : null}
 
-      <form action={createPostAction} className="card overflow-hidden" encType="multipart/form-data">
+      <form action={createPostAction} className="card overflow-hidden">
         <textarea
           name="content"
           className="min-h-[300px] w-full resize-none bg-transparent px-6 py-7 text-2xl leading-10 outline-none placeholder:text-muted/50"

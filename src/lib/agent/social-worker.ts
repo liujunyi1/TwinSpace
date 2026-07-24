@@ -105,7 +105,16 @@ async function processSocialTask(
           id: true,
           content: true,
           imageUrlsJson: true,
-          author: { select: { nickname: true } }
+          author: { select: { nickname: true } },
+          comments: {
+            orderBy: { createdAt: "asc" },
+            take: 30,
+            select: {
+              content: true,
+              generatedByAvatar: true,
+              author: { select: { nickname: true } }
+            }
+          }
         }
       }
     }
@@ -176,7 +185,12 @@ async function processSocialTask(
           id: task.post.id,
           content: task.post.content,
           imageUrls: safeJsonParse<string[]>(task.post.imageUrlsJson, []),
-          authorName: task.post.author.nickname
+          authorName: task.post.author.nickname,
+          existingComments: task.post.comments.map((comment) => ({
+            authorName: comment.author.nickname,
+            content: comment.content,
+            generatedByAvatar: comment.generatedByAvatar
+          }))
         },
         relationshipSummary
       },

@@ -3,6 +3,7 @@ import {
 } from "@/lib/agent/chat-worker";
 import { runSocialAgentWorkerOnce } from "@/lib/agent/social-worker";
 import { prisma } from "@/lib/prisma";
+import { runSimulationWorkerOnce } from "@/lib/simulation/worker";
 
 function wait(milliseconds: number, signal: AbortSignal) {
   return new Promise<void>((resolve) => {
@@ -20,8 +21,13 @@ function wait(milliseconds: number, signal: AbortSignal) {
 }
 
 async function runAllWorkersOnce(signal?: AbortSignal) {
+  if (process.argv.includes("--simulation-only")) {
+    await runSimulationWorkerOnce({ signal });
+    return;
+  }
   await runAgentWorkerOnce();
   await runSocialAgentWorkerOnce({ signal });
+  await runSimulationWorkerOnce({ signal });
 }
 
 async function main() {

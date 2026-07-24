@@ -8,6 +8,7 @@ export default defineConfig({
     }
   },
   test: {
-    globals: false
+    globals: false,
+    exclude: ["e2e/**", "node_modules/**"]
   }
 });

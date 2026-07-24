@@ -84,6 +84,37 @@ describe("conversation agent domain to UI mapping", () => {
       { day: 2, start: "09:00", end: "18:00" }
     ]);
   });
+
+  it("keeps deleted CHAT_PROXY tasks redacted without leaking draft or error text", () => {
+    const result = mapConversationAgentState(
+      domainState({
+        tasks: [
+          {
+            id: "task-1",
+            conversationId: "conversation-1",
+            kind: "CHAT_PROXY",
+            status: "DELETED",
+            draft: "不应泄露的正文",
+            reason: "OWNER_DELETED",
+            error: "不应泄露的错误",
+            scheduledFor: null,
+            createdAt: "2026-07-23T00:00:00.000Z",
+            redacted: true
+          }
+        ]
+      }),
+      true
+    );
+
+    expect(result.tasks[0]).toMatchObject({
+      kind: "CHAT_PROXY",
+      status: "DELETED",
+      draft: null,
+      reason: "OWNER_DELETED",
+      error: null,
+      redacted: true
+    });
+  });
 });
 
 describe("conversation settings payload and optimistic state", () => {

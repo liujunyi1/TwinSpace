@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import React, { useEffect, useId } from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 type ConfirmDialogProps = {

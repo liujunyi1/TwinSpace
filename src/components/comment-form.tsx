@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import React, { FormEvent, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { createCommentAction } from "@/app/actions";
 

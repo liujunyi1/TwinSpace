@@ -496,14 +496,29 @@ export function ConversationClient({
           const label = agentMessageLabel(message.senderMode);
           const managedAgentMessage =
             message.senderMode === "AI_ASSISTED" || message.senderMode === "AI_PROXY";
+          const senderHref = message.senderId
+            ? mine
+              ? "/profile"
+              : `/users/${message.senderId}`
+            : null;
           return (
             <div key={message.id} className={cn("flex gap-2", mine && "justify-end")}>
               {!mine ? (
-                <Avatar
-                  name={message.senderName || title}
-                  src={message.senderAvatarUrl || otherAvatarUrl}
-                  size="sm"
-                />
+                senderHref ? (
+                  <Link href={senderHref} aria-label="Open sender profile" className="shrink-0">
+                    <Avatar
+                      name={message.senderName || title}
+                      src={message.senderAvatarUrl || otherAvatarUrl}
+                      size="sm"
+                    />
+                  </Link>
+                ) : (
+                  <Avatar
+                    name={message.senderName || title}
+                    src={message.senderAvatarUrl || otherAvatarUrl}
+                    size="sm"
+                  />
+                )
               ) : null}
               <div className={cn("max-w-[78%]", mine && "text-right")}>
                 <div
@@ -537,7 +552,11 @@ export function ConversationClient({
                   ) : null}
                 </div>
               </div>
-              {mine ? <Avatar name={currentUserName} src={currentUserAvatarUrl} size="sm" /> : null}
+              {mine ? (
+                <Link href="/profile" aria-label="Open my profile" className="shrink-0">
+                  <Avatar name={currentUserName} src={currentUserAvatarUrl} size="sm" />
+                </Link>
+              ) : null}
             </div>
           );
         })}

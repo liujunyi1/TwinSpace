@@ -6,6 +6,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { SocialCommentContent } from "@/components/social-comment-content";
 import { requireUser } from "@/lib/auth";
+import { socialCommentPresentation } from "@/lib/client/social-comment-presentation";
 import { visiblePostWhere } from "@/lib/post-visibility";
 import { prisma } from "@/lib/prisma";
 import { formatRelativeTime } from "@/lib/utils";
@@ -30,7 +31,7 @@ export default async function MyCommentsPage() {
       {comments.length ? (
         <div className="space-y-4">
           {comments.map((comment) => {
-            const editableAiComment = comment.generatedByAvatar && !comment.ownerEditedAt;
+            const commentUi = socialCommentPresentation(comment, user.id);
 
             return (
               <article key={comment.id} className="card p-5">
@@ -39,12 +40,12 @@ export default async function MyCommentsPage() {
                     <SocialCommentContent
                       commentId={comment.id}
                       content={comment.content}
-                      editable={editableAiComment}
-                      showAiBadge={editableAiComment}
+                      editable={commentUi.editable}
+                      showAiBadge={commentUi.showAiBadge}
                     />
                     <p className="mt-2 text-xs text-muted">{formatRelativeTime(comment.createdAt)}</p>
                   </div>
-                  {editableAiComment ? (
+                  {commentUi.useSocialAgentDelete ? (
                     <SocialCommentDeleteButton commentId={comment.id} />
                   ) : (
                     <form action={deleteCommentAction} className="shrink-0">
